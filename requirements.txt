@@ -1,0 +1,11 @@
+# ============================================================
+# requirements.txt — All Python packages required to run the system
+# Install with: pip install -r requirements.txt
+# ============================================================
+
+apify-client==1.8.1   # Apify official Python SDK — connects to Google Maps scraper
+httpx==0.27.0          # Async HTTP client — enables parallel website validation
+groq==0.9.0            # Groq official Python SDK — connects to LLaMA AI model
+lxml==5.2.2            # C-based HTML parser — 11x faster than BeautifulSoup
+requests==2.32.3       # Standard HTTP library — used for PageSpeed Insights API calls
+dnspython==2.6.1        # DNS/MX lookup — used for email deliverability confidence
