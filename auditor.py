@@ -2,8 +2,18 @@
 # auditor.py — Stage 3: Technical audit + contact extraction
 # Calls Google PageSpeed Insights API for performance scores
 # Parses HTML with lxml (11x faster than BeautifulSoup)
+#
+# FIXES IN THIS VERSION:
+#   ⑦ PSI calls now run concurrently via asyncio.to_thread with
+#      a semaphore — PSI_CONCURRENT_LIMIT parallel calls (default 5).
+#      A batch of 60 audits that took ~10 min sequentially now
+#      finishes in ~2 min.
+#   The public interface is unchanged: call run_audit_all(businesses)
+#   which pre-attaches audit{} to each business dict, then call
+#   process_one() as before.
 # ============================================================
 
+import asyncio                               # For concurrent PSI calls
 import time                                  # For adding delays between PageSpeed API calls
 import re                                    # Regular expressions — used for email extraction
 import requests                              # Standard HTTP library — used for the PSI API call
@@ -14,6 +24,7 @@ from lxml import html as lxml_html          # lxml — C-based HTML parser, very
 from config import (
     PSI_API_KEY,                # Your Google Cloud API key
     PSI_API_URL,                # PageSpeed Insights API endpoint URL
+    PSI_CONCURRENT_LIMIT,       # Max parallel PSI API calls
     SEO_SCORE_THRESHOLD,        # Score threshold for "weak SEO"
     PERFORMANCE_THRESHOLD,      # Score threshold for "slow performance"
     ACCESSIBILITY_THRESHOLD,    # Score threshold for "poor accessibility"
@@ -337,3 +348,132 @@ def audit_website(business: dict) -> dict:
     })
 
     return audit   # Return complete audit result
+
+
+# ── BATCH ASYNC AUDITING ──────────────────────────────────────
+
+def _needs_psi(business: dict) -> bool:
+    """
+    Returns True if this business should get a full PSI + HTML audit.
+    Mirrors the status routing in main.py so we pre-fetch the right ones.
+    """
+    v = business.get("validation", {})
+    if not business.get("website"):          return False  # No website
+    if not v.get("reachable"):               return False  # Site is down
+    if v.get("blocked"):                     return False  # Social/directory domain
+    return True                                            # Reachable — needs PSI
+
+
+def _build_stub_audit(business: dict) -> dict:
+    """
+    Builds a stub audit dict for businesses that don't need PSI.
+    Sets is_weak based on the situation so AI + scoring still work.
+    """
+    v       = business.get("validation", {})
+    website = business.get("website")
+
+    if not website:
+        return {
+            "is_weak": True,
+            "issues_found": ["No website — zero online presence"],
+            "should_audit": False,
+            "html_data": {},
+            "seo_score": None, "performance_score": None,
+            "accessibility_score": None, "best_practices_score": None,
+            "mobile_friendly": None,
+        }
+
+    if not v.get("reachable"):
+        return {
+            "is_weak": True,
+            "issues_found": ["Website unreachable — server down or domain expired"],
+            "should_audit": False,
+            "html_data": {},
+            "seo_score": None, "performance_score": None,
+            "accessibility_score": None, "best_practices_score": None,
+            "mobile_friendly": None,
+        }
+
+    if v.get("blocked"):
+        return {
+            "is_weak": True,
+            "issues_found": ["No proper business website — listing points to a social/directory domain"],
+            "should_audit": False,
+            "html_data": {},
+            "seo_score": None, "performance_score": None,
+            "accessibility_score": None, "best_practices_score": None,
+            "mobile_friendly": None,
+        }
+
+    # Fallback — shouldn't be reached
+    return {
+        "is_weak": False, "issues_found": [], "should_audit": False, "html_data": {},
+        "seo_score": None, "performance_score": None,
+        "accessibility_score": None, "best_practices_score": None,
+        "mobile_friendly": None,
+    }
+
+
+async def _audit_all_async(businesses: list) -> None:
+    """
+    Concurrently fetches PageSpeed scores for all auditable businesses,
+    then runs HTML parsing + issue detection sequentially (it's fast).
+
+    FIX ⑦: PSI API calls are the bottleneck — each takes 5-30 seconds.
+    asyncio.to_thread runs each blocking requests.get() call in a
+    thread-pool worker so up to PSI_CONCURRENT_LIMIT calls overlap.
+    HTML parsing with lxml is CPU-bound and fast, so it stays sequential.
+
+    Results are attached directly to each business dict as business["audit"].
+    """
+    semaphore = asyncio.Semaphore(PSI_CONCURRENT_LIMIT)
+
+    needs_psi = [b for b in businesses if _needs_psi(b)]
+    print(f"[AUDITOR] {len(needs_psi)} sites need PSI — running {PSI_CONCURRENT_LIMIT} concurrently")
+
+    async def _fetch_psi(biz: dict) -> None:
+        """Fetches PSI scores for one business, rate-limited by semaphore."""
+        async with semaphore:
+            # asyncio.to_thread runs the blocking requests call in a thread
+            # so the event loop (and all other PSI calls) stay unblocked.
+            psi = await asyncio.to_thread(get_pagespeed_scores, biz["website"])
+            biz["_psi"] = psi   # Temporarily stash result on the dict
+
+    # Fire all PSI fetches concurrently, respecting the semaphore limit
+    await asyncio.gather(*[_fetch_psi(b) for b in needs_psi])
+
+    # After all PSI results are in, run HTML parsing + issue detection
+    for b in businesses:
+        if _needs_psi(b):
+            psi        = b.pop("_psi", {})        # Grab the pre-fetched PSI result
+            validation = b.get("validation", {})
+            html       = validation.get("html_content", "")
+            html_data  = parse_html(html, b.get("website", ""))
+            issues     = detect_issues(psi, html_data, validation)
+            weak       = is_weak_website(psi, validation) or len(issues) >= 3
+
+            b["audit"] = {
+                "seo_score":            psi.get("seo_score"),
+                "performance_score":    psi.get("performance_score"),
+                "accessibility_score":  psi.get("accessibility_score"),
+                "best_practices_score": psi.get("best_practices_score"),
+                "mobile_friendly":      psi.get("mobile_friendly"),
+                "issues_found":         issues,
+                "is_weak":              weak,
+                "html_data":            html_data,
+                "should_audit":         True,
+            }
+        else:
+            b["audit"] = _build_stub_audit(b)
+
+
+def run_audit_all(businesses: list) -> list:
+    """
+    Synchronous entry point for main.py.
+    Pre-computes audits for all businesses in parallel and attaches
+    the result as business["audit"] so process_one() can read it.
+
+    Returns the same list with audit dicts attached in-place.
+    """
+    asyncio.run(_audit_all_async(businesses))
+    return businesses

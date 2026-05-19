@@ -7,13 +7,29 @@
 #   3. Added website_quality column — human-readable quality label
 #   4. ALL businesses are now saved (not just weak ones)
 #      website_quality label distinguishes them in the CSV
+#
+# CHANGE DETECTION (new):
+#   Re-running the pipeline on existing data now UPDATES records
+#   in-place instead of skipping duplicates silently.
+#
+#   New table  : lead_updates  — field-level change log with
+#                old/new values and timestamp per re-run.
+#   New column : changes_detected on leads — plain-English
+#                summary of what changed in the latest run
+#                (e.g. "https_enabled: NO→YES; seo_score: 43→71").
+#   New fn     : find_existing_lead()  — returns the full lead
+#                dict if this business is already in the DB.
+#   New fn     : update_lead()         — updates changed fields
+#                in-place and writes changes_detected summary.
+#   New fn     : log_lead_changes()    — appends each changed
+#                field to lead_updates for full audit trail.
 # ============================================================
 
 import sqlite3
 import json
 import os
 from datetime import datetime
-from config import DB_PATH
+import config   # NOT "from config import DB_PATH" — so main.py can override config.DB_PATH at runtime
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS leads (
@@ -120,6 +136,18 @@ CREATE TABLE IF NOT EXISTS businesses (
 )
 """
 
+CREATE_LEAD_UPDATES_SQL = """
+CREATE TABLE IF NOT EXISTS lead_updates (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id      INTEGER NOT NULL,          -- FK → leads.id
+    run_id       INTEGER NOT NULL,          -- which pipeline run detected this
+    field_name   TEXT NOT NULL,             -- which field changed
+    old_value    TEXT,                      -- value before this run
+    new_value    TEXT,                      -- value after this run
+    detected_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
 CREATE_IGNORED_SQL = """
 CREATE TABLE IF NOT EXISTS ignored_businesses (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,6 +177,8 @@ CREATE TABLE IF NOT EXISTS ignored_businesses (
 REQUIRED_COLUMNS = {
     "run_id": "INTEGER",
     "google_place_id": "TEXT",
+    "changes_detected": "TEXT",   # Plain-English summary of latest re-run changes
+    "has_changes":      "INTEGER DEFAULT 0",  # 0 = no changes, 1 = updated this run
     "google_maps_url": "TEXT",
     "opportunity_tier": "TEXT",
     "product_lines": "TEXT",
@@ -195,8 +225,8 @@ IGNORED_REQUIRED_COLUMNS = {
 
 def get_connection():
     """Opens and returns a SQLite connection with dict-style row access."""
-    conn = sqlite3.connect(DB_PATH)     # Open or create leads.db
-    conn.row_factory = sqlite3.Row      # Access columns by name
+    conn = sqlite3.connect(config.DB_PATH)   # Uses config.DB_PATH — overridable at runtime
+    conn.row_factory = sqlite3.Row           # Access columns by name
     return conn
 
 def ensure_columns(cursor, table_name: str, required_columns: dict):
@@ -218,13 +248,14 @@ def initialize_database():
     cursor.execute(CREATE_RUNS_SQL)
     cursor.execute(CREATE_BUSINESSES_SQL)
     cursor.execute(CREATE_IGNORED_SQL)
+    cursor.execute(CREATE_LEAD_UPDATES_SQL)
     ensure_columns(cursor, "leads", REQUIRED_COLUMNS)
     ensure_columns(cursor, "runs", RUN_REQUIRED_COLUMNS)
     ensure_columns(cursor, "businesses", BUSINESS_REQUIRED_COLUMNS)
     ensure_columns(cursor, "ignored_businesses", IGNORED_REQUIRED_COLUMNS)
     conn.commit()
     conn.close()
-    print(f"[DB] Database ready at: {os.path.abspath(DB_PATH)}")
+    print(f"[DB] Database ready at: {os.path.abspath(config.DB_PATH)}")
 
 def create_run(cities: list, category_pairs: list, country: str) -> int:
     """Creates a run record and returns its ID."""
@@ -287,7 +318,10 @@ def finalize_run(
     conn.close()
 
 def save_business_observation(business: dict, run_id: int, scrape_status: str = "verified") -> bool:
-    """Stores every verified scraped business for traceability, even if it is not a lead."""
+    """
+    Stores a single business observation.
+    Prefer save_business_observations_batch() for bulk inserts.
+    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -324,6 +358,68 @@ def save_business_observation(business: dict, run_id: int, scrape_status: str = 
     conn.commit()
     conn.close()
     return True
+
+
+def save_business_observations_batch(
+    businesses: list,
+    run_id: int,
+    scrape_status: str = "verified",
+) -> int:
+    """
+    FIX ⑥: Inserts all scraped businesses in a SINGLE database transaction
+    instead of opening and closing one connection per business.
+
+    For a batch of 300 businesses the old code did 300 connect/commit/close
+    cycles.  This does exactly one — roughly 100x fewer round-trips to the
+    SQLite file.
+
+    Returns the number of rows inserted.
+    """
+    if not businesses:
+        return 0
+
+    rows = [
+        (
+            run_id,
+            b.get("google_place_id", ""),
+            b.get("google_maps_url", ""),
+            b.get("business_name", ""),
+            b.get("category", ""),
+            b.get("opportunity_tier", ""),
+            b.get("product_lines", ""),
+            b.get("source_query", ""),
+            b.get("place_type", ""),
+            b.get("google_categories", ""),
+            b.get("city", ""),
+            b.get("country", ""),
+            b.get("address", ""),
+            b.get("phone", ""),
+            b.get("website"),
+            b.get("rating"),
+            b.get("review_count"),
+            scrape_status,
+        )
+        for b in businesses
+    ]
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.executemany(
+        """
+        INSERT INTO businesses (
+            run_id, google_place_id, google_maps_url, business_name, category,
+            opportunity_tier, product_lines, source_query, place_type,
+            google_categories, city, country, address, phone, website, rating,
+            review_count, scrape_status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+    conn.close()
+    print(f"[DB] Saved {len(rows)} business observations in one batch")
+    return len(rows)
 
 def save_ignored_business(business: dict, run_id: int, reason: str, audit: dict, ai_result: dict) -> bool:
     """Stores businesses that passed the quality gate so users can audit what was ignored."""
@@ -459,3 +555,98 @@ def is_already_scraped(business_name: str, city: str, google_place_id: str = "")
     count = cursor.fetchone()[0]
     conn.close()
     return count > 0
+
+
+# ── CHANGE DETECTION ──────────────────────────────────────────
+
+def find_existing_lead(business_name: str, city: str, google_place_id: str = "") -> dict | None:
+    """
+    Returns the full existing lead record as a dict if this business
+    is already in the database, or None if it is new.
+
+    Prefers matching by google_place_id (stable Google identifier)
+    and falls back to business_name + city if no place ID is available.
+    """
+    conn   = get_connection()
+    cursor = conn.cursor()
+    if google_place_id:
+        cursor.execute(
+            "SELECT * FROM leads WHERE google_place_id = ?",
+            (google_place_id,)
+        )
+    else:
+        cursor.execute(
+            "SELECT * FROM leads WHERE business_name = ? AND city = ?",
+            (business_name, city)
+        )
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_lead(lead_id: int, updated_fields: dict, changes_summary: str) -> bool:
+    """
+    Updates an existing lead record in-place with new field values.
+
+    Only the fields that actually changed are written — we never
+    overwrite scraped_at (original first-seen date) or status
+    (the user may have set this to "contacted", "closed", etc.).
+
+    Also stamps changes_detected with a plain-English summary and
+    refreshes last_checked_at to the current time.
+    """
+    if not updated_fields:
+        return False
+
+    # Protect fields the user owns — never overwrite these
+    for protected in ("id", "scraped_at", "status"):
+        updated_fields.pop(protected, None)
+
+    updated_fields["changes_detected"] = changes_summary
+    updated_fields["last_checked_at"]  = datetime.now().isoformat(timespec="seconds")
+
+    set_clause = ", ".join(f"{k} = ?" for k in updated_fields)
+    values     = list(updated_fields.values()) + [lead_id]
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(f"UPDATE leads SET {set_clause} WHERE id = ?", values)
+    conn.commit()
+    conn.close()
+    return True
+
+
+def log_lead_changes(lead_id: int, run_id: int, changes: list) -> None:
+    """
+    Appends each changed field to the lead_updates audit table.
+
+    Each row in lead_updates records:
+      - which lead changed
+      - which run detected the change
+      - which field changed
+      - the old value and new value
+      - when it was detected
+
+    This gives you a complete history of every change across all runs.
+    """
+    if not changes:
+        return
+
+    now  = datetime.now().isoformat(timespec="seconds")
+    rows = [
+        (lead_id, run_id, c["field"], str(c["old"]) if c["old"] is not None else "",
+         str(c["new"]) if c["new"] is not None else "", now)
+        for c in changes
+    ]
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.executemany(
+        """
+        INSERT INTO lead_updates (lead_id, run_id, field_name, old_value, new_value, detected_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+    conn.close()

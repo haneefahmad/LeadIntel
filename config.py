@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 # ============================================================
 # config.py — Central configuration
@@ -9,6 +10,12 @@ import os
 #      not plazas or commercial complexes.
 #   2. ZOOM_LEVEL and MAX_TOTAL_RESULTS_PER_RUN added — controls
 #      how thoroughly Apify tiles a city to find every business.
+#   3. DB_PATH now uses pathlib — always relative to this file,
+#      not the working directory, so the DB is always found.
+#   4. SAUDI_PHONE_PATTERN unified — single authoritative regex
+#      used by both validator.py and contact_utils.py.
+#   5. PSI_CONCURRENT_LIMIT added — controls parallel PageSpeed
+#      API calls in the new async audit batch.
 # ============================================================
 
 # ── API KEYS — EDIT THESE BEFORE RUNNING ─────────────────────
@@ -42,6 +49,8 @@ ZOOM_LEVEL = 15    # City tiling zoom — splits city into a grid of search zone
  
 MAX_CONCURRENT_VALIDATIONS = 50    # Parallel website checks at once
 WEBSITE_TIMEOUT_SECONDS    = 8     # Give up on sites that don't respond in 8 seconds
+PSI_CONCURRENT_LIMIT       = 5     # Parallel PageSpeed Insights API calls
+                                   # PSI quota is 240/4 min — 5 concurrent is safe
  
 # ── LEAD SCORING THRESHOLDS ───────────────────────────────────
  
@@ -79,13 +88,25 @@ BLOCKED_DOMAINS = [
 ]
  
 # ── SAUDI PHONE REGEX ─────────────────────────────────────────
- 
-SAUDI_PHONE_PATTERN = r"(?:\+966|00966|0)(?:5[0-9]{8}|[0-9]{9})"
+# Single authoritative pattern used by both validator.py and contact_utils.py.
+# Prefix (+966 / 00966 / 0) is OPTIONAL so numbers already normalised to
+# 9 bare digits are still matched.
+# Handles:
+#   5xxxxxxxx  — mobile numbers (05x series)
+#   1[1-7]xxxxxxx — landline city codes (011 Riyadh, 012 Jeddah, etc.)
+#   any 9-digit number as a catch-all fallback
+
+SAUDI_PHONE_PATTERN = r"(?:\+966|00966|0)?(?:5[0-9]{8}|1[1-7][0-9]{7}|[0-9]{9})"
  
 # ── OUTPUT PATHS ──────────────────────────────────────────────
- 
-DB_PATH  = "leads.db"
-CSV_PATH = "leads.csv"
+# Use pathlib so paths are always relative to THIS file, not the
+# working directory at runtime.  This prevents the DB from being
+# created in a random location when the script is run from a
+# different directory or via a cron job.
+
+_HERE    = Path(__file__).parent
+DB_PATH  = str(_HERE / "leads.db")
+CSV_PATH = str(_HERE / "leads.csv")
  
 # ── PAGESPEED API ─────────────────────────────────────────────
  

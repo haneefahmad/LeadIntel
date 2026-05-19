@@ -1,24 +1,31 @@
 # ============================================================
-# exporter.py — Stage 5: Export leads to CSV
+# exporter.py — Stage 5: Export leads to XLSX
 # Reads all leads from SQLite, formats every column,
-# and writes a client-ready CSV file
+# and writes a client-ready Excel file with styled headers.
+#
+# CHANGES IN THIS VERSION:
+#   - export_to_xlsx() replaces export_to_csv() — Excel output only
+#   - export_top_leads() removed — only one output file per run
+#   - Dynamic output_path passed in from main.py (named after
+#     the selected categories and cities)
 # ============================================================
 
-import csv                                           # Python built-in CSV writer
 import json                                          # For parsing stored JSON strings back to text
-from datetime import datetime                        # For adding timestamp to output filename
+import openpyxl                                      # Excel file creation — pip install openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 from database import get_all_leads, get_lead_count  # Our DB read functions
-from config import CSV_PATH                          # Default output path from config
 
 # ── CSV COLUMN HEADERS ────────────────────────────────────────
-# These become Row 1 in the CSV file — the column labels the client sees
+# These become Row 1 in the XLSX file — the column labels the client sees
 
-CSV_HEADERS = [
+HEADERS = [
     "Run ID",
     "Google Place ID",
     "Google Maps URL",
     "Business Name",
     "Category",
+    "Google Categories",
     "Opportunity Tier",
     "Product Lines",
     "Source Query",
@@ -53,15 +60,18 @@ CSV_HEADERS = [
     "Best Practices",
     "Mobile Friendly",
     "AI UI/UX Score",
+    "Website Quality",
     "Lead Type",
     "Issues Found",
     "Bad Reason",
-    "Root Causes & Fixes",  # NEW — each issue with why + exactly how to fix it
-    "Improvement Roadmap",  # NEW — prioritised step-by-step improvement plan
+    "Root Causes & Fixes",
+    "Improvement Roadmap",
     "Recommended Services",
     "Industry Sales Pitch",
     "WhatsApp Message",
     "Lead Score",
+    "Has Changes",
+    "Changes Detected",
     "Status",
     "Last Checked At",
     "Scraped At",
@@ -70,49 +80,33 @@ CSV_HEADERS = [
 # ── FORMATTERS ────────────────────────────────────────────────
 
 def fmt_yes_no(value) -> str:
-    """Converts 1/0/True/False/None to readable YES, NO, or N/A for CSV cells."""
-    if value is None:          return "N/A"   # No data was collected for this field
+    """Converts 1/0/True/False/None to readable YES, NO, or N/A."""
+    if value is None:          return "N/A"
     if value in (1, True):     return "YES"
     if value in (0, False):    return "NO"
-    return str(value)                         # Fallback — convert anything else to string
+    return str(value)
 
 def fmt_score(value) -> str:
     """Formats a numeric score as a string with 1 decimal. Returns empty string if None."""
-    if value is None:  return ""              # No score — leave cell blank in CSV
-    return str(round(float(value), 1))        # Round to 1 decimal then convert to string
-
-def fmt_social_links(json_str: str) -> str:
-    """
-    Converts the stored JSON social links dict into a readable pipe-separated string.
-    Example output: "Instagram: https://... | Facebook: https://..."
-    """
-    if not json_str:  return ""              # Empty input — return blank
-    try:
-        links = json.loads(json_str)         # Parse the JSON string back to a Python dict
-        if not links:  return ""             # Empty dict — no social links found
-        parts = []                           # List to build the formatted output
-        for platform, url in links.items():
-            parts.append(f"{platform.capitalize()}: {url}")   # "Instagram: https://..."
-        return " | ".join(parts)             # Join all platforms with a | separator
-    except Exception:
-        return json_str                      # If JSON parse fails, return the raw string
+    if value is None:  return ""
+    return str(round(float(value), 1))
 
 def fmt_issues(json_str: str) -> str:
     """
     Converts the stored JSON issues list into a readable semicolon-separated string.
     Example output: "Poor SEO score (43/100); No HTTPS; Missing meta description"
     """
-    if not json_str:  return ""              # Empty input — return blank
+    if not json_str:  return ""
     try:
-        issues = json.loads(json_str)        # Parse JSON string back to Python list
-        if not issues:  return ""            # Empty list — no issues found
-        return "; ".join(issues)             # Join issue strings with semicolons
+        issues = json.loads(json_str)
+        if not issues:  return ""
+        return "; ".join(issues)
     except Exception:
-        return json_str                      # Return raw string on parse failure
+        return json_str
 
 def fmt_detailed_issues(issues_list: list) -> str:
     """
-    Converts the detailed_issues list into a readable multi-line string for the CSV.
+    Converts the detailed_issues list into a readable multi-line string.
     Each issue becomes:
       ISSUE: [name]
       WHY: [root cause]
@@ -132,44 +126,34 @@ def fmt_detailed_issues(issues_list: list) -> str:
             )
             parts.append(block)
         else:
-            parts.append(str(item))   # Fallback for plain strings
-    return "\n\n".join(parts)   # Double newline between each issue block
+            parts.append(str(item))
+    return "\n\n".join(parts)
 
 def fmt_roadmap(roadmap_list: list) -> str:
     """Converts improvement_roadmap list into a numbered readable string."""
     if not roadmap_list:
         return ""
-    return "\n".join(roadmap_list)   # One step per line
+    return "\n".join(roadmap_list)
 
 def parse_ai_analysis(json_str: str) -> tuple:
     """
     Parses the AI analysis JSON and extracts all display fields.
-    Returns a tuple of 6 values matching the new CSV columns:
+    Returns a tuple of 6 values:
       (summary, root_causes_and_fixes, roadmap, services, priority, reason)
     """
     if not json_str or json_str == "{}":
-        return ("", "", "", "", "", "")   # Six empty strings — one per new column
+        return ("", "", "", "", "", "")
 
     try:
         data = json.loads(json_str)
-
         summary  = data.get("summary", "")
-
-        # Format detailed issues — each with root cause + exact fix
         detailed = fmt_detailed_issues(data.get("detailed_issues", []))
-
-        # Format improvement roadmap — ordered steps
         roadmap  = fmt_roadmap(data.get("improvement_roadmap", []))
-
-        # Recommended services as comma-separated string
         services     = data.get("recommended_services", [])
         services_txt = ", ".join(services) if services else ""
-
         priority = data.get("redesign_priority", "")
         reason   = data.get("redesign_reason", "")
-
         return (summary, detailed, roadmap, services_txt, priority, reason)
-
     except Exception:
         return (json_str, "", "", "", "", "")
 
@@ -177,12 +161,11 @@ def parse_ai_analysis(json_str: str) -> tuple:
 
 def lead_to_row(lead: dict) -> list:
     """
-    Converts one database lead record into a flat list for one CSV row.
-    Order MUST match CSV_HEADERS exactly.
+    Converts one database lead record into a flat list for one XLSX row.
+    Order MUST match HEADERS exactly.
     """
     _ai_summary, ai_detailed, ai_roadmap, ai_services, _ai_priority, _ai_reason = \
         parse_ai_analysis(lead.get("ai_analysis", ""))
-    # Unpack all 6 AI analysis fields
 
     return [
         lead.get("run_id", ""),
@@ -190,6 +173,7 @@ def lead_to_row(lead: dict) -> list:
         lead.get("google_maps_url", ""),
         lead.get("business_name", ""),
         lead.get("category", ""),
+        lead.get("google_categories", ""),
         lead.get("opportunity_tier", ""),
         lead.get("product_lines", ""),
         lead.get("source_query", ""),
@@ -224,73 +208,102 @@ def lead_to_row(lead: dict) -> list:
         fmt_score(lead.get("best_practices_score")),
         fmt_yes_no(lead.get("mobile_friendly")),
         fmt_score(lead.get("ai_uiux_score")),
+        lead.get("website_quality", ""),
         lead.get("lead_type", ""),
         fmt_issues(lead.get("issues_found", "")),
         lead.get("bad_reason", ""),
-        ai_detailed,      # Root Causes & Fixes — new detailed breakdown
-        ai_roadmap,       # Improvement Roadmap — prioritised steps
-        ai_services,      # Recommended Services
+        ai_detailed,
+        ai_roadmap,
+        ai_services,
         lead.get("industry_sales_pitch", ""),
         lead.get("ai_whatsapp_msg", ""),
         fmt_score(lead.get("lead_score")),
+        lead.get("has_changes", 0),
+        lead.get("changes_detected", ""),
         lead.get("status", "new"),
         lead.get("last_checked_at", ""),
         lead.get("scraped_at", ""),
     ]
 
-# ── EXPORT FUNCTIONS ──────────────────────────────────────────
+# ── EXPORT FUNCTION ───────────────────────────────────────────
 
-def export_to_csv(output_path: str = None) -> str:
-    """
-    Exports ALL leads from the database to a CSV file.
-    Returns the path of the created file.
-    """
-    if not output_path:
-        ts          = datetime.now().strftime("%Y%m%d_%H%M%S")   # e.g. "20250514_143022"
-        output_path = f"leads_export_{ts}.csv"                   # Unique timestamped filename
+# Header row style — dark navy background, white bold text
+_HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
+_HEADER_FONT = Font(bold=True, color="FFFFFF", size=10)
+_HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
+# Columns that contain long text — given more width and wrap_text
+_WIDE_COLS = {
+    "Bad Reason", "Root Causes & Fixes", "Improvement Roadmap",
+    "Industry Sales Pitch", "WhatsApp Message", "Issues Found",
+    "Recommended Services", "Changes Detected", "Google Categories",
+    "Source Query", "Address",
+}
+
+def export_to_xlsx(output_path: str) -> str:
+    """
+    Exports ALL leads from the database to a formatted Excel (.xlsx) file.
+    - Frozen header row (row 1 stays visible while scrolling)
+    - Bold white headers on navy background
+    - Column widths fitted to content (capped at 50 chars for wide columns,
+      30 chars for narrow ones)
+    - Text wrapping enabled for long-text columns
+    - Returns the output path, or None if no leads exist.
+    """
     print(f"[EXPORT] Fetching leads from database...")
-    leads = get_all_leads()           # Get all leads sorted by lead_score descending
+    leads = get_all_leads()
 
     if not leads:
         print("[EXPORT] No leads found — nothing to export")
-        return None                   # Nothing to write
+        return None
 
     print(f"[EXPORT] Writing {len(leads)} leads to {output_path}")
 
-    with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
-        # "utf-8-sig" adds a BOM byte at the start — makes Arabic text render correctly in Excel
-        writer = csv.writer(f)        # Create the CSV writer object
-        writer.writerow(CSV_HEADERS)  # Write the header row first (Row 1)
-        for lead in leads:
-            writer.writerow(lead_to_row(lead))   # Write one data row per lead
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Leads"
 
+    # ── Write and style the header row ────────────────────────
+    ws.append(HEADERS)
+    for col_idx, cell in enumerate(ws[1], start=1):
+        cell.font  = _HEADER_FONT
+        cell.fill  = _HEADER_FILL
+        cell.alignment = _HEADER_ALIGN
+
+    # Freeze header row so it stays visible while scrolling
+    ws.freeze_panes = "A2"
+
+    # ── Write data rows ───────────────────────────────────────
+    for lead in leads:
+        ws.append(lead_to_row(lead))
+
+    # ── Size columns to fit content ───────────────────────────
+    for col_idx, header in enumerate(HEADERS, start=1):
+        col_letter  = get_column_letter(col_idx)
+        is_wide_col = header in _WIDE_COLS
+
+        # Measure max content width in this column (header + data)
+        max_len = len(header)
+        for row in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+            val = str(row[0].value or "")
+            # For multiline values, use the longest single line
+            line_max = max((len(line) for line in val.split("\n")), default=0)
+            max_len = max(max_len, line_max)
+
+        if is_wide_col:
+            # Long-text columns: cap at 60, enable text wrap on data cells
+            ws.column_dimensions[col_letter].width = min(max_len + 2, 60)
+            for row in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+                row[0].alignment = Alignment(wrap_text=True, vertical="top")
+        else:
+            # Standard columns: cap at 30 chars for readability
+            ws.column_dimensions[col_letter].width = min(max_len + 2, 30)
+
+    # Set a comfortable row height for header (auto-height would clip wrapping)
+    ws.row_dimensions[1].height = 30
+
+    wb.save(output_path)
     print(f"[EXPORT] Done: {output_path}")
-    return output_path                # Return file path so main.py can display it
-
-def export_top_leads(min_score: float = 70.0) -> str:
-    """
-    Exports only the highest-priority leads (score at or above min_score).
-    Creates a second shorter CSV — useful as a quick-action list for the client.
-    """
-    all_leads = get_all_leads()       # Fetch all leads from database
-    top       = [l for l in all_leads if (l.get("lead_score") or 0) >= min_score]
-    # List comprehension: keep only leads with score >= the minimum threshold
-
-    if not top:
-        print(f"[EXPORT] No leads found with score >= {min_score}")
-        return None
-
-    ts          = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = f"top_leads_{int(min_score)}plus_{ts}.csv"   # e.g. "top_leads_70plus_20250514.csv"
-
-    with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.writer(f)
-        writer.writerow(CSV_HEADERS)          # Same headers as full export
-        for lead in top:
-            writer.writerow(lead_to_row(lead))   # Write only the high-score leads
-
-    print(f"[EXPORT] {len(top)} top leads exported to: {output_path}")
     return output_path
 
 # ── TERMINAL REPORT ───────────────────────────────────────────
@@ -301,22 +314,16 @@ def print_summary_report():
     Shows counts by type and a ranked top-10 list.
     No file is created — this is for terminal review only.
     """
-    leads = get_all_leads()   # Fetch all leads from DB
-    total = len(leads)        # Count them
+    leads = get_all_leads()
+    total = len(leads)
 
     if not total:
         print("[REPORT] Database is empty — no leads yet")
         return
 
-    # Count by category
     no_website  = sum(1 for l in leads if not l.get("website"))
-    # How many businesses had absolutely no website
-
     high_prio   = sum(1 for l in leads if (l.get("lead_score") or 0) >= 70)
-    # How many leads scored 70 or above
-
     med_prio    = sum(1 for l in leads if 40 <= (l.get("lead_score") or 0) < 70)
-    # How many leads scored between 40 and 69
 
     print("\n" + "=" * 55)
     print(" SAUDI ARABIA LEAD INTELLIGENCE — SUMMARY REPORT")
@@ -332,10 +339,10 @@ def print_summary_report():
     print(f"  {'SCORE':>5}  {'BUSINESS':<28}  {'CITY':<12}")
     print("  " + "-" * 52)
 
-    for lead in leads[:10]:   # leads is already sorted descending by score from DB query
+    for lead in leads[:10]:
         score = lead.get("lead_score") or 0
-        name  = (lead.get("business_name") or "?")[:27]   # Truncate long names for display
-        city  = (lead.get("city") or "").split(",")[0][:11]  # Just city name, not country
+        name  = (lead.get("business_name") or "?")[:27]
+        city  = (lead.get("city") or "").split(",")[0][:11]
         print(f"  {score:5.1f}  {name:<28}  {city:<12}")
 
     print("  " + "-" * 52 + "\n")

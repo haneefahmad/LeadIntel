@@ -14,6 +14,13 @@
 #      included as "related" results despite the type filter.
 #   3. Zoom tiling still enabled — ensures we cover the whole
 #      city in tiles so no real business is missed.
+#
+# FIX ⑧: Stats are now returned as a dict from each function
+#   instead of being stored as function attributes
+#   (scrape_city_category.last_stats / scrape_targets.last_stats).
+#   Function attributes are not thread-safe, invisible to type
+#   checkers, and easy to accidentally read stale data from a
+#   previous call.  main.py now reads stats from return values.
 # ============================================================
 
 import time
@@ -99,20 +106,28 @@ def matches_place_type(google_categories: list, place_type: str) -> bool:
 
     return False   # None of Google's tags matched our category → discard
 
-def scrape_city_category(city: str, display_name: str, opportunity_config) -> list:
+def scrape_city_category(
+    city: str,
+    display_name: str,
+    opportunity_config,
+) -> tuple[list, dict]:
     """
     Scrapes Google Maps for one city + category.
     Lets Apify run until it naturally exhausts all results — no hard cap.
     Then filters results strictly using Google's own category tags.
 
+    FIX ⑧: Returns (results, stats) tuple instead of storing stats as a
+    function attribute.  Function attributes are not thread-safe and
+    silently return stale data if the previous call errored out.
+
     Args:
-        city:         City name e.g. "Riyadh"
-        display_name: Human label e.g. "Shopping Mall" — used for logging and CSV
-        place_type:   Google Place Type e.g. "shopping_mall" — exact filter
+        city:               City name e.g. "Riyadh"
+        display_name:       Human label e.g. "Shopping Mall"
+        opportunity_config: Google Place Type string OR EIT opportunity dict
     Returns:
-        List of verified business dicts — only true matches for the category
+        (filtered_results, stats_dict)
     """
-    location = f"{city}, {FIXED_COUNTRY}"   # e.g. "Riyadh, Saudi Arabia"
+    location = f"{city}, {FIXED_COUNTRY}"
     query_mode = is_opportunity_config(opportunity_config)
     place_type = "" if query_mode else opportunity_config
     query_templates = opportunity_config.get("queries", []) if query_mode else [place_type]
@@ -127,9 +142,19 @@ def scrape_city_category(city: str, display_name: str, opportunity_config) -> li
 
     client = get_client()
 
+    # Initialise stats dict — always returned, even on error
+    stats = {
+        "city":                  city,
+        "category":              display_name,
+        "place_type":            place_type or display_name,
+        "raw_count":             0,
+        "discarded_wrong_type":  0,
+        "filtered_count":        0,
+    }
+
     try:
-        raw_results      = []   # All results returned by Apify before filtering
-        filtered_results = []   # Only results that pass our strict category check
+        raw_results      = []
+        filtered_results = []
 
         for query_template in query_templates:
             source_query = build_city_query(query_template, city)
@@ -171,35 +196,23 @@ def scrape_city_category(city: str, display_name: str, opportunity_config) -> li
                 if business:
                     filtered_results.append(business)
 
-        # Log the before/after counts so you can see exactly how many were filtered
         discarded = len(raw_results) - len(filtered_results)
-        scrape_city_category.last_stats = {
-            "city": city,
-            "category": display_name,
-            "place_type": place_type or display_name,
-            "raw_count": len(raw_results),
+        stats.update({
+            "raw_count":            len(raw_results),
             "discarded_wrong_type": discarded,
-            "filtered_count": len(filtered_results),
-        }
-        print(f"[SCRAPER] Raw from Apify       : {len(raw_results)}")
-        print(f"[SCRAPER] Discarded (wrong type): {discarded}")
+            "filtered_count":       len(filtered_results),
+        })
+        print(f"[SCRAPER] Raw from Apify        : {len(raw_results)}")
+        print(f"[SCRAPER] Discarded (wrong type) : {discarded}")
         print(f"[SCRAPER] ✓ True {display_name} count: {len(filtered_results)}")
 
-        time.sleep(1)   # 1-second pause between runs
-        return filtered_results   # Only real matches
+        time.sleep(1)
+        return filtered_results, stats
 
     except Exception as e:
         print(f"[SCRAPER ERROR] {location} / {display_name}: {e}")
-        scrape_city_category.last_stats = {
-            "city": city,
-            "category": display_name,
-            "place_type": place_type,
-            "raw_count": 0,
-            "discarded_wrong_type": 0,
-            "filtered_count": 0,
-            "error": str(e),
-        }
-        return []
+        stats["error"] = str(e)
+        return [], stats
 
 def extract_fields(
     raw: dict,
@@ -245,7 +258,7 @@ def extract_fields(
         "review_count":      raw.get("reviewsCount", 0),
     }
 
-def scrape_targets(cities: list, category_pairs: list) -> list:
+def scrape_targets(cities: list, category_pairs: list) -> tuple[list, dict]:
     """
     Main entry point — scrapes all chosen city + category combinations.
 
@@ -255,20 +268,24 @@ def scrape_targets(cities: list, category_pairs: list) -> list:
       - Strict filter removes wrong-category results
       - Result = true total count of that business type in that city
 
+    FIX ⑧: Returns (businesses, stats) tuple instead of storing stats as
+    a function attribute.  Callers read stats directly from the return
+    value — no risk of reading stale data from a prior failed call.
+
     Args:
         cities:         List of city names e.g. ["Riyadh", "Jeddah"]
-        category_pairs: List of (display_name, place_type) tuples
+        category_pairs: List of (display_name, opportunity_config) tuples
     Returns:
-        Combined deduplicated list of all verified businesses
+        (all_businesses, stats_dict)
     """
     all_businesses = []
-    seen_keys      = set()   # Tracks name+city to prevent duplicates across tiles
+    seen_keys      = set()
     stats = {
-        "raw_scraped_count": 0,
-        "discarded_wrong_type_count": 0,
-        "duplicate_count": 0,
-        "verified_count": 0,
-        "jobs": [],
+        "raw_scraped_count":            0,
+        "discarded_wrong_type_count":   0,
+        "duplicate_count":              0,
+        "verified_count":               0,
+        "jobs":                         [],
     }
 
     total   = len(cities) * len(category_pairs)
@@ -281,16 +298,15 @@ def scrape_targets(cities: list, category_pairs: list) -> list:
             print(f"[SCRAPER] Job {current} of {total}: {display_name} in {city}")
             print(f"{'='*52}")
 
-            results = scrape_city_category(city, display_name, opportunity_config)
-            job_stats = getattr(scrape_city_category, "last_stats", {})
-            stats["raw_scraped_count"] += job_stats.get("raw_count", 0)
+            # FIX ⑧: unpack the (results, job_stats) tuple directly
+            results, job_stats = scrape_city_category(city, display_name, opportunity_config)
+            stats["raw_scraped_count"]          += job_stats.get("raw_count", 0)
             stats["discarded_wrong_type_count"] += job_stats.get("discarded_wrong_type", 0)
             stats["jobs"].append(job_stats)
 
-            added = 0
+            added      = 0
             duplicates = 0
             for biz in results:
-                # Deduplicate — same business can appear in multiple tiles
                 stable_id = biz.get("google_place_id") or biz.get("google_maps_url")
                 if stable_id:
                     key = stable_id.lower().strip()
@@ -312,5 +328,4 @@ def scrape_targets(cities: list, category_pairs: list) -> list:
 
     print(f"\n[SCRAPER] Grand total unique businesses: {len(all_businesses)}")
     stats["verified_count"] = len(all_businesses)
-    scrape_targets.last_stats = stats
-    return all_businesses
+    return all_businesses, stats

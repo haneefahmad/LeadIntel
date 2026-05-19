@@ -15,10 +15,26 @@ from config import (
     BEST_PRACTICES_THRESHOLD,
 )
 
-# ── GROQ CLIENT (CREATED ONCE) ────────────────────────────────
-# Creating the client once at module load is more efficient than creating per call
+# ── GROQ CLIENT (LAZY INIT) ───────────────────────────────────
+# FIX ⑪: Don't create the client at module load time.
+# If GROQ_API_KEY is empty or missing, the old code created a broken
+# client immediately — causing a cryptic error on the first API call.
+# Now the client is created on first use via _get_groq_client(),
+# which also gives a clear error message if the key is not set.
 
-client = Groq(api_key=GROQ_API_KEY)           # Initialize Groq client with your API key
+_groq_client = None   # Module-level cache — created once, reused after that
+
+def _get_groq_client() -> Groq:
+    """Returns the shared Groq client, creating it on first call."""
+    global _groq_client
+    if _groq_client is None:
+        if not GROQ_API_KEY:
+            raise RuntimeError(
+                "[AI] GROQ_API_KEY is not set. "
+                "Add it to your environment or .env file and restart."
+            )
+        _groq_client = Groq(api_key=GROQ_API_KEY)
+    return _groq_client
 
 # ── PROMPT BUILDERS ───────────────────────────────────────────
 
@@ -249,7 +265,7 @@ def call_groq(prompt: str) -> dict:
     Returns an empty dict if the API call fails or returns invalid JSON.
     """
     try:
-        response = client.chat.completions.create(
+        response = _get_groq_client().chat.completions.create(
             model=GROQ_MODEL,        # llama-3.1-8b-instant — fastest Groq model
             messages=[
                 {
@@ -400,14 +416,25 @@ def calculate_lead_score(business: dict, audit: dict, ai_result: dict) -> float:
     Higher score = higher revenue opportunity for the agency.
     This score is used to sort leads in the CSV export.
     """
-    score = 0.0   # Start at zero and add points for each problem found
+    score      = 0.0
+    validation = business.get("validation", {})
 
-    # No website = highest possible opportunity (agency builds from scratch)
-    if not business.get("website"):
-        score += 50   # 50 base points for businesses with no online presence
+    # ── No real website — highest opportunity (build from scratch) ──
+    # Covers: absolutely no website AND blocked-domain "websites"
+    # (Facebook/directory listings that Google Maps lists as a "website").
+    has_real_site = (
+        business.get("website")
+        and not validation.get("blocked")
+        and validation.get("reachable")
+    )
+    if not has_real_site:
+        score += 50   # 50 base points — no proper web presence at all
 
-    # No HTTPS = clear, easy-to-pitch security problem
-    if not business.get("validation", {}).get("https"):
+    # ── No HTTPS on a real, reachable website ───────────────────
+    # Only applies when the site is live and reachable so we actually
+    # know it's serving over HTTP.  Blocked / unreachable / no-website
+    # leads must not get this penalty — they already scored above.
+    if has_real_site and not validation.get("https"):
         score += 15   # 15 points for missing HTTPS
 
     # PSI score failures — worse score = more points added

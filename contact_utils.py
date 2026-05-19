@@ -5,11 +5,15 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 
-from config import HUNTER_API_KEY
+from config import HUNTER_API_KEY, SAUDI_PHONE_PATTERN   # FIX ⑨: single source of truth
 
 
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
-PHONE_RE = re.compile(r"(?:\+966|00966|0)?(?:5[0-9]{8}|1[1-7][0-9]{7}|[0-9]{9})")
+
+# FIX ⑨: Use the unified SAUDI_PHONE_PATTERN from config.py instead of
+# maintaining a duplicate regex here.  Previously this file and validator.py
+# each had their own pattern that could silently diverge over time.
+PHONE_RE = re.compile(SAUDI_PHONE_PATTERN)
 HUNTER_EMAIL_VERIFIER_URL = "https://api.hunter.io/v2/email-verifier"
 
 JUNK_EMAIL_PARTS = (
@@ -230,7 +234,15 @@ def classify_phone(phone: str) -> str:
     digits = re.sub(r"\D+", "", normalized)
     if digits.startswith("9665") and len(digits) == 12:
         return "mobile"
-    if any(digits.startswith(prefix) for prefix in ("96611", "96612", "96613", "96614", "96616", "96617")):
+    # Saudi landline area codes after +966:
+    #   11 = Riyadh       12 = Mecca / Jeddah / Taif
+    #   13 = Eastern      14 = Al-Madinah / Qassim
+    #   15 = Special/military network
+    #   16 = Hail / Tabuk / Northern borders
+    #   17 = Asir / Jizan / Najran
+    if any(digits.startswith(prefix) for prefix in (
+        "96611", "96612", "96613", "96614", "96615", "96616", "96617"
+    )):
         return "landline"
     return "phone"
 

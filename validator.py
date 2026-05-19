@@ -2,6 +2,12 @@
 # validator.py — Stage 2: Website validation
 # Checks if each website is real, reachable, HTTPS, and not blocked
 # Runs up to 50 checks in PARALLEL using Python async for speed
+#
+# FIXES IN THIS VERSION:
+#   1. One shared httpx.AsyncClient for all URLs — avoids creating
+#      and destroying a full connection pool per URL.
+#   2. SSL certificate check wrapped with asyncio.to_thread so it
+#      no longer blocks the async event loop during validation.
 # ============================================================
 
 import asyncio                          # Python async runtime — enables true parallel execution
@@ -112,15 +118,23 @@ def detect_https(original_url: str, final_url: str, history: list) -> bool:
 
     return False   # No https found anywhere in the chain
 
-async def validate_website(url: str, semaphore: asyncio.Semaphore) -> dict:
+async def validate_website(
+    url: str,
+    semaphore: asyncio.Semaphore,
+    client: httpx.AsyncClient,          # FIX ⑤: shared client passed in, not created here
+) -> dict:
     """
     Validates one website URL asynchronously.
     The semaphore limits how many run simultaneously.
+    The shared client reuses the connection pool across all URLs.
     Returns a dict with all validation findings for this URL.
 
-    HTTPS FIX: Now uses detect_https() which checks original URL,
+    HTTPS FIX: Uses detect_https() which checks original URL,
     final URL, AND redirect history — so sites that redirect from
     http to https are correctly marked as https=True, not 0.
+
+    SSL FIX: check_ssl_certificate is wrapped with asyncio.to_thread
+    so the blocking TCP handshake does not stall the event loop.
     """
     result = {
         "url":          url,    # The original URL being tested
@@ -141,45 +155,34 @@ async def validate_website(url: str, semaphore: asyncio.Semaphore) -> dict:
 
     async with semaphore:   # Wait for a free slot from the concurrent pool
         try:
-            async with httpx.AsyncClient(
-                headers=HEADERS,
-                timeout=WEBSITE_TIMEOUT_SECONDS,
-                follow_redirects=True,             # Follow all redirects automatically
-                verify=False,                      # Don't fail on self-signed certs
-                limits=httpx.Limits(max_connections=100),
-            ) as client:
-                response = await client.get(url)
+            response = await client.get(url)   # Reuse the shared connection pool
 
-                result["reachable"]   = True
-                result["status_code"] = response.status_code
-                result["final_url"]   = str(response.url)
-                result["html_content"] = response.text[:100000]   # First 100KB of HTML
+            result["reachable"]    = True
+            result["status_code"]  = response.status_code
+            result["final_url"]    = str(response.url)
+            result["html_content"] = response.text[:100000]   # First 100KB of HTML
 
-                # ── HTTPS DETECTION (FIXED) ──────────────────────
-                # Use the dedicated detect_https() function which checks
-                # original URL + final URL + entire redirect history.
-                # Previously only checked response.url which caused false 0s.
-                result["https"] = detect_https(
-                    original_url = url,                          # URL we started with
-                    final_url    = str(response.url),            # URL after all redirects
-                    history      = list(response.history),       # All intermediate responses
-                )
+            # ── HTTPS DETECTION ──────────────────────────────────
+            result["https"] = detect_https(
+                original_url = url,
+                final_url    = str(response.url),
+                history      = list(response.history),
+            )
 
-                # ── SSL CERTIFICATE CHECK ────────────────────────
-                # Only run SSL check if we confirmed the site uses HTTPS
-                if result["https"]:
-                    # Extract hostname from whichever URL is https
-                    https_url = str(response.url)
-                    if not https_url.startswith("https://"):
-                        # Final URL isn't https but original or redirect was
-                        # Use original URL's hostname for SSL check
-                        https_url = url if url.startswith("https://") else str(response.url)
+            # ── SSL CERTIFICATE CHECK (non-blocking) ─────────────
+            # FIX ②: asyncio.to_thread runs the blocking SSL socket
+            # handshake in a thread pool — the event loop stays free
+            # to continue other concurrent validations.
+            if result["https"]:
+                https_url = str(response.url)
+                if not https_url.startswith("https://"):
+                    https_url = url if url.startswith("https://") else str(response.url)
 
-                    hostname             = urlparse(https_url).netloc   # e.g. "example.com"
-                    hostname             = hostname.split(":")[0]        # Remove port if present
-                    ssl_info             = check_ssl_certificate(hostname)
-                    result["ssl_valid"]  = ssl_info["valid"]
-                    result["ssl_expiry"] = ssl_info["expiry"]
+                hostname             = urlparse(https_url).netloc
+                hostname             = hostname.split(":")[0]        # Remove port if present
+                ssl_info             = await asyncio.to_thread(check_ssl_certificate, hostname)
+                result["ssl_valid"]  = ssl_info["valid"]
+                result["ssl_expiry"] = ssl_info["expiry"]
 
         except httpx.TimeoutException:
             result["reachable"] = False   # No response within timeout
@@ -199,13 +202,17 @@ async def validate_all_async(businesses: list) -> list:
     """
     Validates all business websites in parallel using asyncio.
     Creates up to MAX_CONCURRENT_VALIDATIONS simultaneous connections.
+
+    FIX ⑤: One shared httpx.AsyncClient is created here and passed
+    to every validate_website call.  This means all URLs share a
+    single connection pool and TLS session cache instead of each
+    URL spinning up and tearing down its own client.
     """
-    # Create the semaphore — acts as a pool of MAX_CONCURRENT_VALIDATIONS slots
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_VALIDATIONS)
 
     # Split businesses into those with and without websites
-    with_site    = [b for b in businesses if b.get("website")]   # Has a URL to validate
-    without_site = [b for b in businesses if not b.get("website")]  # No URL — instant lead
+    with_site    = [b for b in businesses if b.get("website")]
+    without_site = [b for b in businesses if not b.get("website")]
 
     print(f"[VALIDATOR] {len(with_site)} with website | {len(without_site)} without")
 
@@ -216,26 +223,35 @@ async def validate_all_async(businesses: list) -> list:
             "blocked": False,   "html_content": "",
         }
 
-    if not with_site:       # If no websites to validate
-        return businesses   # Return all businesses unchanged
+    if not with_site:
+        return businesses
 
-    # Build one async task per business that has a website
-    tasks = [
-        validate_website(b["website"], semaphore)   # One coroutine per URL
-        for b in with_site
-    ]
+    print(f"[VALIDATOR] Running {len(with_site)} validations in parallel...")
 
-    print(f"[VALIDATOR] Running {len(tasks)} validations in parallel...")
-
-    # asyncio.gather() runs ALL tasks concurrently and waits for all to finish
-    # This is what makes validation fast — 50 websites checked at the same time
-    results = await asyncio.gather(*tasks)
+    # ── SHARED CLIENT ─────────────────────────────────────────
+    # One AsyncClient for the entire batch — single connection pool,
+    # reused TLS sessions, and no per-URL setup/teardown overhead.
+    async with httpx.AsyncClient(
+        headers=HEADERS,
+        timeout=WEBSITE_TIMEOUT_SECONDS,
+        follow_redirects=True,
+        verify=False,                          # Allow self-signed certs
+        limits=httpx.Limits(
+            max_connections=MAX_CONCURRENT_VALIDATIONS + 10,
+            max_keepalive_connections=MAX_CONCURRENT_VALIDATIONS,
+        ),
+    ) as client:
+        tasks = [
+            validate_website(b["website"], semaphore, client)
+            for b in with_site
+        ]
+        results = await asyncio.gather(*tasks)
 
     # Attach each validation result back to its matching business
     for i, b in enumerate(with_site):
-        b["validation"] = results[i]   # results[i] matches with_site[i] — same order
+        b["validation"] = results[i]
 
-    return without_site + with_site    # Combine both groups back into one list
+    return without_site + with_site
 
 def run_validation(businesses: list) -> list:
     """
