@@ -1,5 +1,12 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env file from the project folder before reading any env vars.
+# This means you never need to manually export variables in your terminal —
+# just keep your keys in .env and they are automatically available.
+_HERE = Path(__file__).parent
+load_dotenv(_HERE / ".env")
 
 # ============================================================
 # config.py — Central configuration
@@ -104,7 +111,6 @@ SAUDI_PHONE_PATTERN = r"(?:\+966|00966|0)?(?:5[0-9]{8}|1[1-7][0-9]{7}|[0-9]{9})"
 # created in a random location when the script is run from a
 # different directory or via a cron job.
 
-_HERE    = Path(__file__).parent
 DB_PATH  = str(_HERE / "leads.db")
 CSV_PATH = str(_HERE / "leads.csv")
  
