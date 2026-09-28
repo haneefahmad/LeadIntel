@@ -1,34 +1,44 @@
-# Secrets
+# Environment Configuration & Private Credentials
 .env
 .env.*
-!.env.example
+backend/.env
+backend/.env.*
 
-# Runtime data
+# Local Database Binaries & Write-Ahead Logs
 *.db
 *.sqlite
 *.sqlite3
-leads_export_*.csv
-top_leads_*.csv
-*.xlsx
+*.db-journal
+*.db-wal
+*.db-shm
+backend/data/*.db
+backend/data/*.sqlite
 
-# Python
+# Spreadsheet Output Overheads & Export Data
+~$*.xlsx
+backend/data/*.xlsx
+backend/data/*.csv
+
+# Python Virtual Environments & Bytecode
+.venv/
+venv/
+ENV/
+env/
 __pycache__/
 *.py[cod]
-*.pyo
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+*$py.class
+*.so
 
-# Virtual environments
-.venv/
-.venv-*/
-venv/
-env/
-
-# OS/editor
+# Operating System Overheads
 .DS_Store
+Thumbs.db
+
+# IDE & Editor files
 .vscode/
 .idea/
 
-# Logs
-*.log
+# Node.js & Frontend dependencies
+node_modules/
+frontend-react/node_modules/
+.npm
+
