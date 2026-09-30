@@ -29,11 +29,41 @@ export default function ColumnsModal() {
     }
   }, [isOpen, selectedColumns]);
 
-  if (!isOpen) return null;
-
   const categories = Array.isArray(fieldCatalog?.categories) ? fieldCatalog.categories : [];
   const allFields = Array.isArray(fieldCatalog?.fields) ? fieldCatalog.fields : [];
   const presets = (fieldCatalog?.presets && typeof fieldCatalog.presets === 'object') ? fieldCatalog.presets : {};
+
+  // Safe selected array
+  const safeSelected = Array.isArray(tempSelected) ? tempSelected : [];
+
+  // Filtered fields based on search - called unconditionally before any early return
+  const filteredFields = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allFields;
+    return allFields.filter(f => 
+      (f && f.id && f.id.toLowerCase().includes(q)) || 
+      (f && f.label && f.label.toLowerCase().includes(q)) ||
+      (f && f.description && f.description.toLowerCase().includes(q))
+    );
+  }, [allFields, search]);
+
+  // Group fields by category - called unconditionally before any early return
+  const categorized = useMemo(() => {
+    const groups = {};
+    categories.forEach(cat => {
+      if (cat && cat.id) groups[cat.id] = [];
+    });
+    filteredFields.forEach(f => {
+      if (!f || !f.id) return;
+      const catId = f.category || 'other';
+      if (!groups[catId]) groups[catId] = [];
+      groups[catId].push(f);
+    });
+    return groups;
+  }, [categories, filteredFields]);
+
+  // ── Early returns strictly after all hooks have been invoked ──────────────
+  if (!isOpen) return null;
 
   // If schema is still loading
   if (!fieldCatalog || allFields.length === 0) {
@@ -66,35 +96,6 @@ export default function ColumnsModal() {
       </div>
     );
   }
-
-  // Safe selected array
-  const safeSelected = Array.isArray(tempSelected) ? tempSelected : [];
-
-  // Filtered fields based on search
-  const filteredFields = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return allFields;
-    return allFields.filter(f => 
-      (f.id && f.id.toLowerCase().includes(q)) || 
-      (f.label && f.label.toLowerCase().includes(q)) ||
-      (f.description && f.description.toLowerCase().includes(q))
-    );
-  }, [allFields, search]);
-
-  // Group fields by category
-  const categorized = useMemo(() => {
-    const groups = {};
-    categories.forEach(cat => {
-      if (cat && cat.id) groups[cat.id] = [];
-    });
-    filteredFields.forEach(f => {
-      if (!f || !f.id) return;
-      const catId = f.category || 'other';
-      if (!groups[catId]) groups[catId] = [];
-      groups[catId].push(f);
-    });
-    return groups;
-  }, [categories, filteredFields]);
 
   // Toggle single column
   const toggleColumn = (colId) => {
