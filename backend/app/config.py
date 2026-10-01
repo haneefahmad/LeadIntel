@@ -304,6 +304,7 @@ def delete_sheet(sheet_name: str) -> dict:
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
 APIFY_API_TOKEN  = os.getenv("APIFY_API_TOKEN", "")
+APIFY_TOKEN      = APIFY_API_TOKEN
 APOLLO_API_KEY   = os.getenv("APOLLO_API_KEY", "")
 
 # ── Apify Actors ──────────────────────────────────────────────────────────────

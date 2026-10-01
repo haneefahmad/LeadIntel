@@ -837,8 +837,8 @@ async def extract_single_company(req: SingleCompanyExtractRequest):
     if not selected_engines:
         raise HTTPException(status_code=400, detail="At least one extraction engine (Apify or Apollo) must be selected.")
 
-    # Check for existing record in database to update non-destructively
-    existing_records, _ = db.query_records(q=company_name, limit=5)
+    # Check for existing record in target database sheet to update non-destructively
+    existing_records, _ = db.query_records(q=company_name, sheet_name=target_sheet, limit=10)
     matched_record = None
     for r in existing_records:
         if (r.get("Company_Name") or "").strip().lower() == company_name.lower():
@@ -847,14 +847,33 @@ async def extract_single_company(req: SingleCompanyExtractRequest):
 
     record: dict[str, Any] = dict(matched_record) if matched_record else {}
     record["Company_Name"] = record.get("Company_Name") or company_name
-    if req.city and not record.get("City"):
+    
+    # Explicit user overrides
+    if req.city:
         record["City"] = req.city.strip()
-    if req.country and not record.get("Country"):
+    if req.country:
         record["Country"] = req.country.strip()
-    if req.domain and not record.get("Website_URL"):
+    if req.domain:
         clean_d = apollo_client.extract_clean_domain(req.domain)
         record["Website_URL"] = req.domain.strip() if req.domain.startswith("http") else f"https://{clean_d or req.domain.strip()}"
         record["Has_Website"] = "Yes"
+
+    # If the existing record had a phone from an incompatible foreign country (e.g. US +1 when targeting Saudi Arabia),
+    # clean up outdated mismatched contact attributes so fresh extraction populates clean accurate data
+    rec_country = (record.get("Country") or req.country or "").strip()
+    rec_phone = str(record.get("Primary_Phone") or "")
+    rec_wa = str(record.get("WhatsApp_Number") or "")
+    if rec_country.lower() in ("saudi arabia", "sa", "ksa") and (rec_phone.startswith("+1") or rec_wa.startswith("+1")):
+        cleared = []
+        for field in list(record.keys()):
+            if any(k in field for k in ("Phone", "Email", "DM", "LinkedIn", "WhatsApp", "Industry", "Employee")):
+                record[field] = ""
+                cleared.append(field)
+        if not req.domain:
+            record["Website_URL"] = ""
+            record["Has_Website"] = "No"
+            cleared.extend(["Website_URL", "Has_Website"])
+        record["_cleared_fields"] = cleared
 
     engine_notes: list[str] = []
 
@@ -868,8 +887,11 @@ async def extract_single_company(req: SingleCompanyExtractRequest):
             )
             if apify_data:
                 for k, v in apify_data.items():
-                    if v and enrichment_service.is_field_empty(record.get(k), k):
+                    if v and (enrichment_service.is_field_empty(record.get(k), k) or k in ("Primary_Phone", "Phone_Primary", "Full_Address", "Google_Maps_URL", "Google_Rating", "Reviews_Count", "Primary_Industry", "google_place_id")):
                         record[k] = v
+                if apify_data.get("Website_URL"):
+                    record["Website_URL"] = apify_data["Website_URL"]
+                    record["Has_Website"] = "Yes"
                 engine_notes.append("Apify (Google Maps) firmographics retrieved")
             else:
                 engine_notes.append("Apify (Google Maps) found no matching place")
@@ -881,6 +903,36 @@ async def extract_single_company(req: SingleCompanyExtractRequest):
         except Exception as e:
             logger.warning("Apify single scrape error: %s", e)
             engine_notes.append(f"Apify error: {e}")
+
+    # ── Intelligent Web Discovery Fallback for Website ─────────────────────────
+    if not record.get("Website_URL"):
+        try:
+            discovered_url = await contact_enricher.resolve_company_website(
+                company_name=company_name,
+                city=record.get("City") or req.city or "",
+                country=record.get("Country") or req.country or "Saudi Arabia",
+            )
+            if discovered_url:
+                record["Website_URL"] = discovered_url
+                record["Has_Website"] = "Yes"
+                engine_notes.append("Official website discovered")
+        except Exception as e:
+            logger.debug("Website resolution error: %s", e)
+
+    # ── Direct Website Contact Discovery (Crawl Website for Email & LinkedIn) ──
+    if record.get("Website_URL"):
+        try:
+            web_contacts = await contact_enricher.enrich_single_record_from_website(record)
+            if web_contacts:
+                if web_contacts.get("Email_General") and enrichment_service.is_field_empty(record.get("Email_General"), "Email_General"):
+                    record["Email_General"] = web_contacts["Email_General"]
+                    record["General_Email"] = web_contacts["Email_General"]
+                    engine_notes.append(f"Website email discovered ({web_contacts['Email_General']})")
+                if web_contacts.get("Company_LinkedIn_URL") and enrichment_service.is_field_empty(record.get("Company_LinkedIn"), "Company_LinkedIn"):
+                    record["Company_LinkedIn_URL"] = web_contacts["Company_LinkedIn_URL"]
+                    record["Company_LinkedIn"] = web_contacts["Company_LinkedIn_URL"]
+        except Exception as e:
+            logger.debug("Website contact crawl error: %s", e)
 
     # ── Engine 2: Apollo.io Decision Maker & Contact Enrichment ───────────────
     if "apollo" in selected_engines:

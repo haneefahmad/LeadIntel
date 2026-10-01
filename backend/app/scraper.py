@@ -387,7 +387,13 @@ async def scrape_single_company(
     Queries Apify Google Places for a single specific business name.
     Returns normalized canonical record dict or None if not found.
     """
-    token = getattr(config, "APIFY_TOKEN", "") or ""
+    token = (
+        getattr(config, "APIFY_API_TOKEN", "")
+        or getattr(config, "APIFY_TOKEN", "")
+        or os.getenv("APIFY_API_TOKEN", "")
+        or os.getenv("APIFY_TOKEN", "")
+        or ""
+    ).strip()
     if not token or token.lower() in ("your_apify_token_here", "your_token_here", "none", "null"):
         raise PermissionError("Apify API Token is not configured. Please add it in Settings.")
 

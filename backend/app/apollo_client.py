@@ -78,6 +78,52 @@ def clean_phone_number(raw_phone: Any) -> str:
     return phone_str
 
 
+def is_country_compatible(expected: str | None, candidate: str | None) -> bool:
+    """
+    Checks if a candidate location/country from an API match is compatible with the expected country.
+    Prevents false-positive American or foreign company matches from corrupting local records.
+    """
+    if not expected or not candidate:
+        return True
+    exp = expected.strip().lower()
+    cand = candidate.strip().lower()
+
+    if exp == cand:
+        return True
+
+    aliases = {
+        "saudi arabia": ["saudi arabia", "saudi", "ksa", "sa", "riyadh", "jeddah", "dammam"],
+        "united states": ["united states", "usa", "us", "u.s.", "u.s.a.", "united states of america", "illinois", "california", "texas", "new york", "florida"],
+        "united arab emirates": ["united arab emirates", "uae", "u.a.e.", "dubai", "abu dhabi", "sharjah"],
+        "united kingdom": ["united kingdom", "uk", "u.k.", "great britain", "england", "london", "scotland"],
+        "qatar": ["qatar", "doha"],
+        "kuwait": ["kuwait"],
+        "bahrain": ["bahrain"],
+        "oman": ["oman"],
+        "egypt": ["egypt", "cairo"],
+    }
+
+    def match_key(text: str) -> str | None:
+        words = set(re.findall(r"\b[a-zA-Z\.]+\b", text.lower()))
+        for key, vals in aliases.items():
+            for v in vals:
+                if " " in v:
+                    if v in text.lower():
+                        return key
+                else:
+                    if v in words:
+                        return key
+        return None
+
+    exp_key = match_key(exp)
+    cand_key = match_key(cand)
+
+    if exp_key and cand_key:
+        return exp_key == cand_key
+
+    return exp in cand or cand in exp
+
+
 class ApolloClient:
     """Client for interacting with the Apollo.io REST API."""
 
@@ -221,6 +267,8 @@ class ApolloClient:
         domain: str = "",
         organization_name: str = "",
         titles: list[str] | None = None,
+        country: str = "",
+        city: str = "",
         limit: int = 3,
     ) -> list[dict[str, Any]]:
         """
@@ -245,6 +293,8 @@ class ApolloClient:
             body["q_organization_domains"] = domain
         elif organization_name:
             body["q_organization_name"] = organization_name
+            if country:
+                body["person_locations"] = [country]
         else:
             return []
 
@@ -265,6 +315,8 @@ class ApolloClient:
                             "page": 1,
                             "per_page": limit,
                         }
+                        if country:
+                            body_fallback["person_locations"] = [country]
                         resp_fallback = await client.post(url, headers=self._headers(), json=body_fallback)
                         if resp_fallback.status_code == 200:
                             data_fb = resp_fallback.json()
@@ -335,6 +387,8 @@ class ApolloClient:
         company_name = (record.get("Company_Name") or "").strip()
         website_url = (record.get("Website_URL") or "").strip()
         domain = extract_clean_domain(website_url)
+        target_country = (record.get("Country") or "").strip()
+        target_city = (record.get("City") or "").strip()
 
         dm_name = (record.get("DM_Full_Name") or "").strip()
         dm_title = (record.get("DM_Title") or "").strip()
@@ -349,15 +403,17 @@ class ApolloClient:
             if not record.get("Employee_Count") or not record.get("Secondary_Industry"):
                 org_info = await self.enrich_organization(domain=domain, organization_name=company_name)
                 if org_info:
-                    emp_count = org_info.get("estimated_num_employees")
-                    if emp_count and not record.get("Employee_Count"):
-                        new_fields["Employee_Count"] = emp_count
-                    org_sub = org_info.get("industry")
-                    if org_sub and not record.get("Secondary_Industry"):
-                        new_fields["Secondary_Industry"] = str(org_sub).strip()
-                    org_type = org_info.get("company_type")
-                    if org_type and not record.get("Company_Type"):
-                        new_fields["Company_Type"] = str(org_type).strip()
+                    org_c = org_info.get("country") or ""
+                    if not target_country or not org_c or is_country_compatible(target_country, org_c):
+                        emp_count = org_info.get("estimated_num_employees")
+                        if emp_count and not record.get("Employee_Count"):
+                            new_fields["Employee_Count"] = emp_count
+                        org_sub = org_info.get("industry")
+                        if org_sub and not record.get("Secondary_Industry"):
+                            new_fields["Secondary_Industry"] = str(org_sub).strip()
+                        org_type = org_info.get("company_type")
+                        if org_type and not record.get("Company_Type"):
+                            new_fields["Company_Type"] = str(org_type).strip()
             return new_fields
 
         matched_person: dict[str, Any] | None = None
@@ -380,7 +436,20 @@ class ApolloClient:
 
         # Step 2: If DM Name is empty, search for top executive via mixed_people/api_search
         if not matched_person and not dm_name and (domain or company_name):
-            candidates = await self.search_people(domain=domain, organization_name=company_name, limit=3)
+            candidates = await self.search_people(
+                domain=domain,
+                organization_name=company_name,
+                country=target_country,
+                city=target_city,
+                limit=3,
+            )
+            # If search was name-only, filter out candidate profiles with mismatched countries
+            if candidates and not domain and target_country:
+                candidates = [
+                    c for c in candidates
+                    if is_country_compatible(target_country, c.get("country") or (c.get("organization") or {}).get("country"))
+                ]
+
             if candidates:
                 top_cand = candidates[0]
                 cand_id = top_cand.get("id")
@@ -399,6 +468,17 @@ class ApolloClient:
                     if not matched_person:
                         # Fallback to the search preview info
                         matched_person = top_cand
+
+        # Discard matched person if location incompatible and search was name-only
+        if matched_person and not domain and target_country:
+            m_country = matched_person.get("country") or (matched_person.get("organization") or {}).get("country") or ""
+            if not is_country_compatible(target_country, m_country):
+                logger.info(
+                    "Apollo matched person country '%s' incompatible with expected '%s'. Discarding false positive.",
+                    m_country,
+                    target_country,
+                )
+                matched_person = None
 
         # Step 3: Extract fields from matched person
         if matched_person:
@@ -456,7 +536,9 @@ class ApolloClient:
 
             # Organization firmographics embedded in person match (FREE, 0 extra credits)
             p_org = matched_person.get("organization") or {}
-            if isinstance(p_org, dict) and p_org:
+            p_org_country = p_org.get("country") or ""
+            org_country_ok = not target_country or not p_org_country or is_country_compatible(target_country, p_org_country)
+            if isinstance(p_org, dict) and p_org and org_country_ok:
                 emp_count = p_org.get("estimated_num_employees")
                 if emp_count and not record.get("Employee_Count"):
                     new_fields["Employee_Count"] = emp_count
@@ -481,26 +563,29 @@ class ApolloClient:
             if (not has_emp or not has_ind or not website_url) and (domain or company_name):
                 org = await self.enrich_organization(domain=domain, organization_name=company_name)
                 if org:
-                    emp_count = org.get("estimated_num_employees")
-                    if emp_count and not record.get("Employee_Count") and "Employee_Count" not in new_fields:
-                        new_fields["Employee_Count"] = emp_count
+                    org_country = org.get("country") or ""
+                    org_country_ok = not target_country or not org_country or is_country_compatible(target_country, org_country)
+                    if org_country_ok:
+                        emp_count = org.get("estimated_num_employees")
+                        if emp_count and not record.get("Employee_Count") and "Employee_Count" not in new_fields:
+                            new_fields["Employee_Count"] = emp_count
 
-                    org_ind = org.get("industry")
-                    if org_ind and not record.get("Secondary_Industry") and "Secondary_Industry" not in new_fields:
-                        new_fields["Secondary_Industry"] = str(org_ind).strip()
+                        org_ind = org.get("industry")
+                        if org_ind and not record.get("Secondary_Industry") and "Secondary_Industry" not in new_fields:
+                            new_fields["Secondary_Industry"] = str(org_ind).strip()
 
-                    org_web = org.get("website_url")
-                    if org_web and not website_url and "Website_URL" not in new_fields:
-                        new_fields["Website_URL"] = org_web.strip()
-                        new_fields["Has_Website"] = "Yes"
+                        org_web = org.get("website_url")
+                        if org_web and not website_url and "Website_URL" not in new_fields:
+                            new_fields["Website_URL"] = org_web.strip()
+                            new_fields["Has_Website"] = "Yes"
 
-                    org_li = org.get("linkedin_url")
-                    if org_li and not record.get("Company_LinkedIn") and "Company_LinkedIn" not in new_fields:
-                        new_fields["Company_LinkedIn"] = org_li.strip()
+                        org_li = org.get("linkedin_url")
+                        if org_li and not record.get("Company_LinkedIn") and "Company_LinkedIn" not in new_fields:
+                            new_fields["Company_LinkedIn"] = org_li.strip()
 
-                    # Primary Phone fallback if missing
-                    org_phone = org.get("phone")
-                    if org_phone and not record.get("Primary_Phone") and "Primary_Phone" not in new_fields:
-                        new_fields["Primary_Phone"] = clean_phone_number(org_phone)
+                        # Primary Phone fallback if missing
+                        org_phone = org.get("phone")
+                        if org_phone and not record.get("Primary_Phone") and "Primary_Phone" not in new_fields:
+                            new_fields["Primary_Phone"] = clean_phone_number(org_phone)
 
         return new_fields

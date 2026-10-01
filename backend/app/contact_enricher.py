@@ -4,13 +4,17 @@ Crawls business websites for public emails and company LinkedIn profiles.
 """
 
 import asyncio
+import logging
 import re
+import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 try:
     from backend.app import config
@@ -147,6 +151,9 @@ async def _enrich_one(
                     found.company_linkedin = linkedin
                 if found.email and found.company_linkedin:
                     break
+                # If email is already discovered and we checked contact or about, don't crawl deep management paths
+                if found.email and any(path in url.lower() for path in ("/contact", "/about")):
+                    break
 
     fields: dict[str, Any] = {}
     if found.email:
@@ -213,3 +220,89 @@ def _append_note(existing: str | None, note: str) -> str:
     if note in existing:
         return existing
     return f"{existing} | {note}"
+
+
+IGNORED_SEARCH_DOMAINS = {
+    "duckduckgo.com", "google.com", "bing.com", "yahoo.com", "yandex.com", "baidu.com",
+    "facebook.com", "instagram.com", "twitter.com", "x.com", "youtube.com",
+    "wikipedia.org", "yelp.com", "yellowpages.com", "tripadvisor.com",
+    "bizmideast.com", "exportbusinessmart.com", "kompass.com", "dnb.com",
+    "zoominfo.com", "crunchbase.com", "bloomberg.com", "mapquest.com",
+    "foursquare.com", "ich.ma", "saudiyello.com", "saudi-directory.net",
+    "saudidatabase.com", "linkedin.com", "pinterest.com", "tiktok.com",
+    "waze.com", "apple.com", "play.google.com"
+}
+
+
+async def resolve_company_website(company_name: str, city: str = "", country: str = "") -> str:
+    """
+    Intelligently resolves an official website URL for a business when Google Maps lacks one.
+    Uses search query: "{company_name} {city} {country} official website".
+    Returns the canonical website URL or empty string.
+    """
+    if not company_name:
+        return ""
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+    }
+
+    query_str = f"{company_name.strip()} {city.strip()} {country.strip()} official website".strip()
+    encoded_q = urllib.parse.quote(query_str)
+    search_url = f"https://lite.duckduckgo.com/lite/?q={encoded_q}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, verify=False) as client:
+            resp = await client.get(search_url, headers=headers)
+            if resp.status_code != 200:
+                return ""
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for a in soup.select("a.result-link"):
+                href = a.get("href", "")
+                parsed = urllib.parse.urlparse(href)
+                params = urllib.parse.parse_qs(parsed.query)
+                clean_url = params.get("uddg", [""])[0]
+                if clean_url:
+                    parsed_clean = urllib.parse.urlparse(clean_url)
+                    netloc = parsed_clean.netloc.lower()
+                    domain = netloc[4:] if netloc.startswith("www.") else netloc
+                    if not domain or any(ign in domain for ign in IGNORED_SEARCH_DOMAINS):
+                        continue
+                    # Return base site URL
+                    return f"{parsed_clean.scheme}://{parsed_clean.netloc}"
+    except Exception as e:
+        logger.debug("resolve_company_website error for '%s': %s", company_name, e)
+
+    return ""
+
+
+async def enrich_single_record_from_website(record: dict[str, Any]) -> dict[str, Any]:
+    """
+    Crawls the website for a single record to discover general email and company LinkedIn.
+    """
+    url = (record.get("Website_URL") or "").strip()
+    if not url:
+        return {}
+
+    sem = asyncio.Semaphore(1)
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(6.0),
+        follow_redirects=True,
+        verify=False,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+        },
+    ) as client:
+        _, fields = await _enrich_one(client, sem, record)
+        return fields

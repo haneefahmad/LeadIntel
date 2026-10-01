@@ -777,7 +777,21 @@ def _prepare_record(record: dict[str, Any]) -> dict[str, Any]:
 def _merge_existing_values(stored: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     """Keep existing enrichment when a later provider/rerun returns blanks."""
     merged = dict(incoming)
+
+    incoming_country = str(incoming.get("Country") or "").strip().lower()
+    stored_phone = str(stored.get("Primary_Phone") or "")
+
+    # If stored record had an incompatible foreign phone (+1) while target is Saudi Arabia,
+    # do NOT restore outdated foreign decision maker, phone, or contact fields.
+    is_foreign_mismatch = (incoming_country in ("saudi arabia", "sa", "ksa") and stored_phone.startswith("+1"))
+    cleared_keys = set(incoming.get("_cleared_fields") or [])
+
     for col in MASTER_COLUMNS:
+        if col in cleared_keys:
+            merged[col] = ""
+            continue
+        if is_foreign_mismatch and any(k in col for k in ("DM", "LinkedIn", "Phone", "Email", "WhatsApp", "Industry", "Employee")):
+            continue
         if merged.get(col) in (None, "") and stored.get(col) not in (None, ""):
             merged[col] = stored[col]
     return merged
