@@ -1,15 +1,12 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { usePipeline } from '../../context/PipelineContext';
 import KpiCards from '../pipeline/KpiCards';
 import PipelineToolbar from '../pipeline/PipelineToolbar';
 import LeadsTable from '../pipeline/LeadsTable';
-import PipelineKanban from '../pipeline/PipelineKanban';
 import Pagination from '../pipeline/Pagination';
 
 export default function PipelineView() {
   const { stats } = useApp();
-  const { viewMode } = usePipeline();
 
   return (
     <div className="tab-pane active" id="tab-database">
@@ -33,15 +30,9 @@ export default function PipelineView() {
         {/* Enhanced 2-Tier Pipeline Control Panel */}
         <PipelineToolbar />
 
-        {/* View Switcher: Table vs Visual Kanban Board */}
-        {viewMode === 'kanban' ? (
-          <PipelineKanban />
-        ) : (
-          <>
-            <LeadsTable />
-            <Pagination />
-          </>
-        )}
+        {/* Leads Table & Pagination */}
+        <LeadsTable />
+        <Pagination />
       </div>
     </div>
   );

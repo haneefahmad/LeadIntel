@@ -1390,22 +1390,26 @@ def delete_all_records(sheet_name: str | None = None) -> int:
 
 # ── Run Logs & Suppression Lists ──────────────────────────────────────────────
 
-def log_run(run_data: dict[str, Any], sheet_name: str | None = None) -> None:
+def log_run(run_data: dict[str, Any] | None = None, sheet_name: str | None = None, **kwargs: Any) -> None:
     init_db(sheet_name)
     eng = get_engine(sheet_name=sheet_name)
     sh = _active_sheet(sheet_name)
 
-    records_returned = run_data.get("records_returned", 0) or 0
-    cost = run_data.get("cost_usd", run_data.get("cost", 0.0)) or 0.0
+    data: dict[str, Any] = dict(run_data or {})
+    if kwargs:
+        data.update(kwargs)
+
+    records_returned = data.get("records_returned") or data.get("records_found", 0) or 0
+    cost = data.get("cost_usd", data.get("cost", 0.0)) or 0.0
     cost_per_100 = round(cost / records_returned * 100, 2) if records_returned else 0
-    city = run_data.get("city") or run_data.get("city_target", "")
-    max_rec = run_data.get("max_records") or run_data.get("max_records_set", 0) or 0
-    dups = run_data.get("duplicates") or run_data.get("duplicates_found", 0) or 0
-    added = run_data.get("added_to_master", records_returned) or 0
+    city = data.get("city") or data.get("city_target") or data.get("location", "")
+    max_rec = data.get("max_records") or data.get("max_records_set", 0) or 0
+    dups = data.get("duplicates") or data.get("duplicates_found", 0) or 0
+    added = data.get("added_to_master") or data.get("records_saved", records_returned) or 0
 
     with eng.begin() as conn:
         count = conn.execute(sa.text("SELECT COUNT(*) FROM apify_run_log")).scalar() or 0
-        r_id = run_data.get("run_id") or f"AR-{count + 1:03d}"
+        r_id = data.get("run_id") or f"AR-{count + 1:03d}"
 
         # Delete existing run if re-logging same ID
         conn.execute(sa.text("DELETE FROM apify_run_log WHERE Run_ID = :rid"), {"rid": r_id})
@@ -1413,23 +1417,23 @@ def log_run(run_data: dict[str, Any], sheet_name: str | None = None) -> None:
             apify_run_log_table.insert(),
             {
                 "Run_ID": r_id,
-                "Date": run_data.get("date", date.today().isoformat()),
-                "Time_Started": run_data.get("time_started", ""),
-                "Time_Completed": run_data.get("time_completed", ""),
-                "Query": run_data.get("query", ""),
-                "Language": run_data.get("language", "en"),
+                "Date": data.get("date", date.today().isoformat()),
+                "Time_Started": data.get("time_started", ""),
+                "Time_Completed": data.get("time_completed", ""),
+                "Query": data.get("query", ""),
+                "Language": data.get("language", "en"),
                 "City_Target": city,
-                "Industry": run_data.get("industry", ""),
+                "Industry": data.get("industry", ""),
                 "Max_Records_Set": max_rec,
                 "Records_Returned": records_returned,
                 "Cost_USD": cost,
                 "Cost_per_100": cost_per_100,
-                "Quality_Score": run_data.get("quality_score", 9.0),
+                "Quality_Score": data.get("quality_score", 9.0),
                 "Duplicates_Found": dups,
                 "Added_to_Master": added,
-                "Notes": run_data.get("notes", ""),
-                "Run_By": run_data.get("run_by", "System"),
-                "Run_Type": run_data.get("run_type", "Normal"),
+                "Notes": data.get("notes", ""),
+                "Run_By": data.get("run_by", "System"),
+                "Run_Type": data.get("run_type", "Normal"),
                 "sheet_name": sh,
             },
         )

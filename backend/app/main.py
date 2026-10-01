@@ -922,17 +922,24 @@ async def extract_single_company(req: SingleCompanyExtractRequest):
 
     # Log run
     try:
+        now_time = datetime.now().strftime("%H:%M")
         db.log_run(
-            run_type="Single Company Extraction",
-            location=record.get("City") or req.city or "Global",
-            industry=record.get("Primary_Industry") or "General",
-            records_found=1,
-            records_saved=1,
-            cost_usd=0.01 if "apify" in selected_engines else 0.0,
+            {
+                "run_type": "Single Company Extraction",
+                "query": company_name,
+                "city": record.get("City") or req.city or "Global",
+                "industry": record.get("Primary_Industry") or "General",
+                "records_returned": 1,
+                "added_to_master": 1 if is_new else 0,
+                "cost_usd": 0.01 if "apify" in selected_engines else 0.0,
+                "time_started": now_time,
+                "time_completed": now_time,
+                "notes": f"Engines: {', '.join(selected_engines)}",
+            },
             sheet_name=target_sheet,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to log single extraction run: %s", e)
 
     return {
         "status": "success",

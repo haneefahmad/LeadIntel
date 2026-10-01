@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { usePipeline } from '../../context/PipelineContext';
 import { api } from '../../api/client';
-import { Table, Kanban, Layers, CheckSquare, Tag, Users } from 'lucide-react';
+import { Layers, CheckSquare, Tag, Users } from 'lucide-react';
 
 export default function PipelineToolbar() {
   const { stats, openModal, selectedRecordIds, setSelectedRecordIds, activeSheet, showToast, reloadStats } = useApp();
@@ -14,8 +14,6 @@ export default function PipelineToolbar() {
     resetFilters, 
     activeFilterCount, 
     selectedColumns,
-    viewMode,
-    setViewMode,
     reloadRecords,
   } = usePipeline();
 
@@ -78,60 +76,6 @@ export default function PipelineToolbar() {
       {/* ── Tier 1: Search, Selection & Primary Action Bar ── */}
       <div className="pipeline-top-bar">
         <div className="search-and-selection" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {/* View Mode Switcher (Table vs Kanban) */}
-          <div className="view-mode-toggle" style={{
-            display: 'inline-flex',
-            borderRadius: 6,
-            border: '1px solid var(--border)',
-            background: 'var(--card)',
-            overflow: 'hidden',
-          }}>
-            <button
-              type="button"
-              onClick={() => setViewMode('table')}
-              className={`view-toggle-btn ${viewMode === 'table' ? 'is-active' : ''}`}
-              title="Spreadsheet Table View"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '6px 10px',
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                border: 'none',
-                cursor: 'pointer',
-                background: viewMode === 'table' ? 'var(--accent, #6366f1)' : 'transparent',
-                color: viewMode === 'table' ? '#ffffff' : 'var(--text-muted)',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <Table size={13} />
-              <span>Table</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('kanban')}
-              className={`view-toggle-btn ${viewMode === 'kanban' ? 'is-active' : ''}`}
-              title="Visual Sales Funnel Kanban Board"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '6px 10px',
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                border: 'none',
-                cursor: 'pointer',
-                background: viewMode === 'kanban' ? 'var(--accent, #6366f1)' : 'transparent',
-                color: viewMode === 'kanban' ? '#ffffff' : 'var(--text-muted)',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <Kanban size={13} />
-              <span>Pipeline Funnel</span>
-            </button>
-          </div>
-
           <div className="search-input-wrapper">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="8" />
