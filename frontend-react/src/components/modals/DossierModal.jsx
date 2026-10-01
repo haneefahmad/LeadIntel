@@ -40,6 +40,10 @@ export default function DossierModal() {
     deal_value: '',
     tags: '',
     notes: '',
+    total_touches: 0,
+    replies_received: 0,
+    next_action_date: '',
+    next_action_type: '',
   });
 
   // Fetch record details
@@ -57,6 +61,10 @@ export default function DossierModal() {
         deal_value: data.Deal_Value != null ? data.Deal_Value : '',
         tags: data.Tags || '',
         notes: data.CRM_Notes || data.Notes || '',
+        total_touches: data.Total_Touches || 0,
+        replies_received: data.Replies_Received || 0,
+        next_action_date: data.Next_Action_Date || '',
+        next_action_type: data.Next_Action_Type || '',
       });
     } catch (err) {
       console.error('Failed to fetch lead detail:', err);
@@ -83,9 +91,13 @@ export default function DossierModal() {
         pipeline_stage: form.pipeline_stage,
         outreach_status: form.outreach_status,
         assigned_to: form.assigned_to,
-        deal_value: form.deal_value ? Number(form.deal_value) : null,
+        deal_value_sar: form.deal_value ? Number(form.deal_value) : null,
         tags: form.tags,
         notes: form.notes,
+        total_touches: Number(form.total_touches) || 0,
+        replies_received: Number(form.replies_received) || 0,
+        next_action_date: form.next_action_date || null,
+        next_action_type: form.next_action_type || null,
         updated_by: 'Dashboard Mini-CRM',
       };
 
@@ -336,87 +348,236 @@ export default function DossierModal() {
                     <span>Pipeline & Outreach Management</span>
                   </div>
 
-                  {/* Lead Status */}
+                  {/* Pipeline Stage Stepper */}
                   <div className="form-group">
-                    <label className="form-label">Lead Lifecycle Status</label>
-                    <select
-                      className="form-select"
-                      value={form.status}
-                      onChange={(e) => setForm(f => ({ ...f, status: e.target.value }))}
-                    >
-                      <option value="New">New Lead</option>
-                      <option value="Contacted">Contacted</option>
-                      <option value="In_Conversation">In Conversation</option>
-                      <option value="Proposal_Sent">Proposal Sent</option>
-                      <option value="Qualified">Qualified</option>
-                      <option value="Meeting_Scheduled">Meeting Scheduled</option>
-                      <option value="Won">Closed / Won</option>
-                      <option value="Lost">Lost</option>
-                      <option value="Disqualified">Disqualified</option>
-                    </select>
+                    <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Sales Pipeline Stage</span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--accent)', fontWeight: 600 }}>
+                        {form.pipeline_stage ? form.pipeline_stage.replace(/_/g, ' ') : 'Identified'}
+                      </span>
+                    </label>
+
+                    {/* Visual Stage Stepper */}
+                    <div className="crm-stage-stepper" style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gap: 4,
+                      marginBottom: 8,
+                    }}>
+                      {[
+                        { id: 'Identified', label: '1. Identified' },
+                        { id: 'Contacted', label: '2. Contacted' },
+                        { id: 'Qualified', label: '3. Qualified' },
+                        { id: 'Proposal', label: '4. Proposal' },
+                        { id: 'Negotiation', label: '5. Negotiation' },
+                        { id: 'Closed_Won', label: '6. Won' },
+                      ].map(stg => {
+                        const isCurrent = form.pipeline_stage === stg.id || 
+                          (stg.id === 'Proposal' && form.pipeline_stage === 'Proposal_Sent') ||
+                          (stg.id === 'Closed_Won' && form.pipeline_stage === 'Won');
+
+                        return (
+                          <button
+                            key={stg.id}
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, pipeline_stage: stg.id }))}
+                            style={{
+                              padding: '5px 4px',
+                              fontSize: '0.7rem',
+                              fontWeight: isCurrent ? 700 : 500,
+                              borderRadius: 6,
+                              border: `1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'}`,
+                              background: isCurrent ? 'var(--badge-blue-bg)' : 'var(--card)',
+                              color: isCurrent ? 'var(--badge-blue-text)' : 'var(--text-muted)',
+                              cursor: 'pointer',
+                              textAlign: 'center',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            {stg.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  {/* Pipeline Stage */}
-                  <div className="form-group">
-                    <label className="form-label">Sales Pipeline Stage</label>
-                    <select
-                      className="form-select"
-                      value={form.pipeline_stage}
-                      onChange={(e) => setForm(f => ({ ...f, pipeline_stage: e.target.value }))}
-                    >
-                      <option value="Identified">1. Identified</option>
-                      <option value="Contacted">2. Contacted</option>
-                      <option value="Qualified">3. Qualified</option>
-                      <option value="Demo_Scheduled">4. Demo Scheduled</option>
-                      <option value="Proposal">5. Proposal</option>
-                      <option value="Negotiation">6. Negotiation</option>
-                      <option value="Closed_Won">7. Closed Won</option>
-                      <option value="Closed_Lost">8. Closed Lost</option>
-                    </select>
+                  {/* Lead Status & Outreach Grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div className="form-group">
+                      <label className="form-label">Lifecycle Status</label>
+                      <select
+                        className="form-select"
+                        value={form.status}
+                        onChange={(e) => setForm(f => ({ ...f, status: e.target.value }))}
+                      >
+                        <option value="New">New Lead</option>
+                        <option value="Contacted">Contacted</option>
+                        <option value="In_Conversation">In Conversation</option>
+                        <option value="Proposal_Sent">Proposal Sent</option>
+                        <option value="Qualified">Qualified</option>
+                        <option value="Meeting_Scheduled">Meeting</option>
+                        <option value="Won">Closed / Won</option>
+                        <option value="Lost">Lost</option>
+                        <option value="Disqualified">Disqualified</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Outreach Cadence</label>
+                      <select
+                        className="form-select"
+                        value={form.outreach_status}
+                        onChange={(e) => setForm(f => ({ ...f, outreach_status: e.target.value }))}
+                      >
+                        <option value="Not_Started">Not Started</option>
+                        <option value="Queued">Queued</option>
+                        <option value="Email_Sent">Email Sent</option>
+                        <option value="Phone_Called">Phone Called</option>
+                        <option value="In_Discussion">In Discussion</option>
+                        <option value="Replied">Replied</option>
+                        <option value="Meeting_Scheduled">Meeting Set</option>
+                        <option value="Bounced">Email Bounced</option>
+                        <option value="Do_Not_Contact">Do Not Contact</option>
+                      </select>
+                    </div>
                   </div>
 
-                  {/* Outreach Status */}
-                  <div className="form-group">
-                    <label className="form-label">Outreach Channel Status</label>
-                    <select
-                      className="form-select"
-                      value={form.outreach_status}
-                      onChange={(e) => setForm(f => ({ ...f, outreach_status: e.target.value }))}
-                    >
-                      <option value="Not_Started">Not Started</option>
-                      <option value="Queued">Queued for Sequence</option>
-                      <option value="Email_Sent">Email Sent</option>
-                      <option value="Phone_Called">Phone Called</option>
-                      <option value="In_Discussion">In Discussion</option>
-                      <option value="Replied">Replied</option>
-                      <option value="Bounced">Email Bounced</option>
-                      <option value="Do_Not_Contact">Do Not Contact</option>
-                    </select>
+                  {/* Touchpoints Counter */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '4px 0 8px 0' }}>
+                    <div style={{
+                      background: 'var(--bg-subtle, rgba(0,0,0,0.02))',
+                      border: '1px solid var(--border)',
+                      borderRadius: 6,
+                      padding: '8px 10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div>
+                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>Total Touches</span>
+                        <strong style={{ fontSize: '0.92rem', color: 'var(--text)' }}>{form.total_touches || 0}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, total_touches: (Number(f.total_touches) || 0) + 1 }))}
+                        style={{
+                          fontSize: '0.68rem',
+                          padding: '3px 7px',
+                          borderRadius: 4,
+                          border: '1px solid var(--border)',
+                          background: 'var(--card)',
+                          color: 'var(--text)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        + Touch
+                      </button>
+                    </div>
+
+                    <div style={{
+                      background: 'var(--bg-subtle, rgba(0,0,0,0.02))',
+                      border: '1px solid var(--border)',
+                      borderRadius: 6,
+                      padding: '8px 10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div>
+                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>Replies Received</span>
+                        <strong style={{ fontSize: '0.92rem', color: 'var(--badge-green-text)' }}>{form.replies_received || 0}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, replies_received: (Number(f.replies_received) || 0) + 1, outreach_status: 'Replied' }))}
+                        style={{
+                          fontSize: '0.68rem',
+                          padding: '3px 7px',
+                          borderRadius: 4,
+                          border: '1px solid var(--border)',
+                          background: 'var(--card)',
+                          color: 'var(--text)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        + Reply
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Assigned To */}
-                  <div className="form-group">
-                    <label className="form-label">Assigned SDR / Rep</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. Sarah Jenkins"
-                      value={form.assigned_to}
-                      onChange={(e) => setForm(f => ({ ...f, assigned_to: e.target.value }))}
-                    />
+                  {/* Deal Value & SDR Assignment */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div className="form-group">
+                      <label className="form-label">Deal Value ($)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        className="form-input"
+                        placeholder="e.g. 15000"
+                        value={form.deal_value}
+                        onChange={(e) => setForm(f => ({ ...f, deal_value: e.target.value }))}
+                      />
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        {[5000, 15000, 30000, 50000].map(amt => (
+                          <button
+                            key={amt}
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, deal_value: amt }))}
+                            style={{
+                              fontSize: '0.65rem',
+                              padding: '1px 5px',
+                              borderRadius: 3,
+                              border: '1px solid var(--border)',
+                              background: 'var(--bg-subtle, transparent)',
+                              color: 'var(--text-secondary)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            +${amt / 1000}k
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Assigned SDR / Rep</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Sarah Jenkins"
+                        value={form.assigned_to}
+                        onChange={(e) => setForm(f => ({ ...f, assigned_to: e.target.value }))}
+                      />
+                    </div>
                   </div>
 
-                  {/* Deal Value */}
-                  <div className="form-group">
-                    <label className="form-label">Estimated Deal Value ($)</label>
-                    <input
-                      type="number"
-                      step="any"
-                      className="form-input"
-                      placeholder="e.g. 15000"
-                      value={form.deal_value}
-                      onChange={(e) => setForm(f => ({ ...f, deal_value: e.target.value }))}
-                    />
+                  {/* Next Scheduled Action */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div className="form-group">
+                      <label className="form-label">Next Action Date</label>
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={form.next_action_date || ''}
+                        onChange={(e) => setForm(f => ({ ...f, next_action_date: e.target.value }))}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Next Action Type</label>
+                      <select
+                        className="form-select"
+                        value={form.next_action_type || ''}
+                        onChange={(e) => setForm(f => ({ ...f, next_action_type: e.target.value }))}
+                      >
+                        <option value="">Select action...</option>
+                        <option value="Follow-up Email">Follow-up Email</option>
+                        <option value="Phone Call">Phone Call</option>
+                        <option value="Product Demo">Product Demo</option>
+                        <option value="Send Proposal">Send Proposal</option>
+                        <option value="Contract Review">Contract Review</option>
+                      </select>
+                    </div>
                   </div>
 
                   {/* Tags */}
@@ -435,7 +596,7 @@ export default function DossierModal() {
                   <div className="form-group">
                     <label className="form-label">Internal CRM Notes</label>
                     <textarea
-                      rows={4}
+                      rows={3}
                       className="form-textarea"
                       placeholder="Add strategic account notes, qualification details, conversation summary..."
                       value={form.notes}

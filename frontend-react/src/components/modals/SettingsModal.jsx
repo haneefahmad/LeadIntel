@@ -318,19 +318,19 @@ export default function SettingsModal() {
                 marginBottom: 20, 
                 padding: '12px 14px', 
                 borderRadius: 8, 
-                backgroundColor: 'rgba(255, 255, 255, 0.02)', 
-                border: '1px solid rgba(255, 255, 255, 0.08)' 
+                backgroundColor: 'var(--bg-subtle)', 
+                border: '1px solid var(--border)' 
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block' }}></span>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#ffffff' }}>Server Status: Active</span>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text)' }}>Server Status: Active</span>
                 </div>
                 <span className="badge badge-gray" style={{ fontSize: '0.68rem', fontFamily: 'monospace' }}>Port 8000</span>
               </div>
               <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0 0 10px 0', lineHeight: 1.4 }}>
-                FastAPI backend is serving API requests and SSE pipelines on <code style={{ color: '#818cf8' }}>http://localhost:8000</code>.
+                FastAPI backend is serving API requests and SSE pipelines on <code style={{ color: 'var(--accent)' }}>http://localhost:8000</code>.
               </p>
               {!confirmingStop ? (
                 <button

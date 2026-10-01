@@ -26,6 +26,16 @@ export function PipelineProvider({ children }) {
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(false);
 
+  // View Mode: 'table' | 'kanban'
+  const [viewMode, setViewMode] = useState(() => {
+    return localStorage.getItem('leadintel_view_mode') || 'table';
+  });
+
+  const updateViewMode = useCallback((mode) => {
+    setViewMode(mode);
+    localStorage.setItem('leadintel_view_mode', mode);
+  }, []);
+
   // Columns selection state with localStorage persistence
   const [selectedColumns, setSelectedColumns] = useState(() => {
     try {
@@ -173,9 +183,12 @@ export function PipelineProvider({ children }) {
     applyKpiFilter,
     loading,
     fetchRecords,
+    reloadRecords: fetchRecords,
     selectedColumns,
     setSelectedColumns: updateSelectedColumns,
     updateLocalRecord,
+    viewMode,
+    setViewMode: updateViewMode,
   };
 
   return <PipelineContext.Provider value={value}>{children}</PipelineContext.Provider>;

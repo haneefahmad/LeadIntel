@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { usePipeline } from '../../context/PipelineContext';
+import { api } from '../../api/client';
+import { Table, Kanban, Layers, CheckSquare, Tag, Users } from 'lucide-react';
 
 export default function PipelineToolbar() {
-  const { stats, openModal, selectedRecordIds, setSelectedRecordIds } = useApp();
+  const { stats, openModal, selectedRecordIds, setSelectedRecordIds, activeSheet, showToast, reloadStats } = useApp();
   const { 
     search, 
     setSearch, 
@@ -11,8 +13,57 @@ export default function PipelineToolbar() {
     updateFilter, 
     resetFilters, 
     activeFilterCount, 
-    selectedColumns 
+    selectedColumns,
+    viewMode,
+    setViewMode,
+    reloadRecords,
   } = usePipeline();
+
+  const [batchUpdating, setBatchUpdating] = useState(false);
+
+  // Batch CRM Status Update
+  const handleBatchStatus = async (newStatus) => {
+    if (!newStatus || selectedRecordIds.length === 0) return;
+    try {
+      setBatchUpdating(true);
+      await Promise.all(
+        selectedRecordIds.map(id => 
+          api.updateRecord(id, { status: newStatus, updated_by: 'Batch CRM Update' }, activeSheet)
+        )
+      );
+      showToast(`Updated status to "${newStatus}" for ${selectedRecordIds.length} leads!`, 'success');
+      setSelectedRecordIds([]);
+      await reloadStats(activeSheet);
+      await reloadRecords();
+    } catch (err) {
+      console.error('Batch status update failed:', err);
+      showToast(`Batch update failed: ${err.message}`, 'error');
+    } finally {
+      setBatchUpdating(false);
+    }
+  };
+
+  // Batch Pipeline Stage Update
+  const handleBatchStage = async (newStage) => {
+    if (!newStage || selectedRecordIds.length === 0) return;
+    try {
+      setBatchUpdating(true);
+      await Promise.all(
+        selectedRecordIds.map(id => 
+          api.updateRecord(id, { pipeline_stage: newStage, updated_by: 'Batch CRM Stage' }, activeSheet)
+        )
+      );
+      showToast(`Moved ${selectedRecordIds.length} leads to "${newStage.replace(/_/g, ' ')}"!`, 'success');
+      setSelectedRecordIds([]);
+      await reloadStats(activeSheet);
+      await reloadRecords();
+    } catch (err) {
+      console.error('Batch stage update failed:', err);
+      showToast(`Batch stage update failed: ${err.message}`, 'error');
+    } finally {
+      setBatchUpdating(false);
+    }
+  };
 
   const cities = Object.entries(stats?.by_city || {})
     .filter(([c]) => c && c !== 'Unspecified')
@@ -26,7 +77,61 @@ export default function PipelineToolbar() {
     <div className="pipeline-control-panel">
       {/* ── Tier 1: Search, Selection & Primary Action Bar ── */}
       <div className="pipeline-top-bar">
-        <div className="search-and-selection">
+        <div className="search-and-selection" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* View Mode Switcher (Table vs Kanban) */}
+          <div className="view-mode-toggle" style={{
+            display: 'inline-flex',
+            borderRadius: 6,
+            border: '1px solid var(--border)',
+            background: 'var(--card)',
+            overflow: 'hidden',
+          }}>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`view-toggle-btn ${viewMode === 'table' ? 'is-active' : ''}`}
+              title="Spreadsheet Table View"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '6px 10px',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                background: viewMode === 'table' ? 'var(--accent, #6366f1)' : 'transparent',
+                color: viewMode === 'table' ? '#ffffff' : 'var(--text-muted)',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Table size={13} />
+              <span>Table</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('kanban')}
+              className={`view-toggle-btn ${viewMode === 'kanban' ? 'is-active' : ''}`}
+              title="Visual Sales Funnel Kanban Board"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '6px 10px',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                background: viewMode === 'kanban' ? 'var(--accent, #6366f1)' : 'transparent',
+                color: viewMode === 'kanban' ? '#ffffff' : 'var(--text-muted)',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Kanban size={13} />
+              <span>Pipeline Funnel</span>
+            </button>
+          </div>
+
           <div className="search-input-wrapper">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="8" />
@@ -52,10 +157,59 @@ export default function PipelineToolbar() {
             )}
           </div>
 
-          {/* Selection badge & action */}
+          {/* Selection badge & Batch CRM actions */}
           {selectedRecordIds.length > 0 && (
-            <div id="selectionActions" className="selection-pill">
+            <div id="selectionActions" className="selection-pill" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="selection-pill-count">{selectedRecordIds.length} selected</span>
+
+              {/* Batch Status Picker */}
+              <select
+                onChange={(e) => { handleBatchStatus(e.target.value); e.target.value = ''; }}
+                defaultValue=""
+                disabled={batchUpdating}
+                style={{
+                  fontSize: '0.72rem',
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  border: '1px solid var(--border)',
+                  background: 'var(--card)',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="" disabled>Set Status...</option>
+                <option value="New">Mark New</option>
+                <option value="Contacted">Mark Contacted</option>
+                <option value="Qualified">Mark Qualified</option>
+                <option value="Proposal_Sent">Mark Proposal</option>
+                <option value="Won">Mark Won</option>
+                <option value="Disqualified">Mark Disqualified</option>
+              </select>
+
+              {/* Batch Stage Picker */}
+              <select
+                onChange={(e) => { handleBatchStage(e.target.value); e.target.value = ''; }}
+                defaultValue=""
+                disabled={batchUpdating}
+                style={{
+                  fontSize: '0.72rem',
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  border: '1px solid var(--border)',
+                  background: 'var(--card)',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="" disabled>Set Stage...</option>
+                <option value="Identified">1. Identified</option>
+                <option value="Contacted">2. Contacted</option>
+                <option value="Qualified">3. Qualified</option>
+                <option value="Proposal">4. Proposal</option>
+                <option value="Negotiation">5. Negotiation</option>
+                <option value="Closed_Won">6. Closed Won</option>
+              </select>
+
               <button
                 type="button"
                 className="selection-pill-clear"
@@ -77,7 +231,6 @@ export default function PipelineToolbar() {
               id="btnExtractCompany"
               onClick={() => openModal('extractCompany')}
               title="Extract single company firmographics & contacts via Apify or Apollo"
-              style={{ borderColor: 'rgba(59, 130, 246, 0.4)', background: 'rgba(59, 130, 246, 0.12)', color: '#60a5fa' }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M3 21h18" />
@@ -97,14 +250,13 @@ export default function PipelineToolbar() {
               id="btnEnrichApollo"
               onClick={() => openModal('enrich', 'apollo')}
               title="Enrich verified emails, decision makers & firmographics via Apollo.io"
-              style={{ borderColor: 'rgba(99, 102, 241, 0.4)', background: 'rgba(99, 102, 241, 0.12)' }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
               </svg>
               <span>⚡ Enrich Apollo</span>
               {selectedRecordIds.length > 0 && (
-                <span style={{ background: 'rgba(99, 102, 241, 0.3)', color: '#a5b4fc', borderRadius: 4, padding: '0 5px', fontSize: '0.68rem', fontWeight: 600 }}>
+                <span className="mono-badge badge-indigo" style={{ padding: '0 5px', fontSize: '0.68rem', fontWeight: 700 }}>
                   {selectedRecordIds.length}
                 </span>
               )}
@@ -123,7 +275,7 @@ export default function PipelineToolbar() {
               </svg>
               <span>Enrich Apify</span>
               {selectedRecordIds.length > 0 && (
-                <span style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', borderRadius: 4, padding: '0 4px', fontSize: '0.68rem' }}>
+                <span className="mono-badge badge-emerald" style={{ padding: '0 5px', fontSize: '0.68rem', fontWeight: 700 }}>
                   {selectedRecordIds.length}
                 </span>
               )}

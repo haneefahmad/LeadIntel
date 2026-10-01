@@ -544,7 +544,7 @@ export default function MissionControl() {
                   </div>
                   <div className="est-item" style={{ gridColumn: 'span 2' }}>
                     <span className="est-label">Estimated Apify Cost</span>
-                    <span className="est-val" style={{ color: '#ffffff' }}>
+                    <span className="est-val" style={{ color: 'var(--text)' }}>
                       ${googleEstimates.estCost.toFixed(2)}
                     </span>
                   </div>
@@ -585,8 +585,8 @@ export default function MissionControl() {
         {/* Right Column: Live Mission Console */}
         <div className="panel-card" style={{ padding: 20, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '0.85rem', color: '#ffffff' }}>
-              <Terminal size={15} style={{ color: '#818cf8' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '0.85rem', color: 'var(--text)' }}>
+              <Terminal size={15} style={{ color: 'var(--accent)' }} />
               <span>Autonomous Execution Console</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -613,7 +613,7 @@ export default function MissionControl() {
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 4 }}>
               <span>{jobStage || 'Standing by for mission parameters'}</span>
-              <span style={{ fontWeight: 600, color: '#818cf8' }}>{jobProgress}%</span>
+              <span style={{ fontWeight: 600, color: 'var(--accent)' }}>{jobProgress}%</span>
             </div>
             <div className="progress-bar-track">
               <div 

@@ -464,9 +464,9 @@ export default function DatabaseConfigCard({ onDatabaseChanged }) {
           )}
 
           {/* Generated Connection String Preview */}
-          <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)' }}>
+          <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 6, backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)' }}>
             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Target URI: </span>
-            <code style={{ fontSize: '0.73rem', color: '#a5b4fc', wordBreak: 'break-all' }}>
+            <code style={{ fontSize: '0.73rem', color: 'var(--accent)', wordBreak: 'break-all' }}>
               {computedUrl() || 'Incomplete parameters'}
             </code>
           </div>
@@ -480,9 +480,9 @@ export default function DatabaseConfigCard({ onDatabaseChanged }) {
           borderRadius: 8,
           marginBottom: 16,
           fontSize: '0.76rem',
-          backgroundColor: testResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-          border: `1px solid ${testResult.success ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-          color: testResult.success ? '#34d399' : '#f87171',
+          backgroundColor: testResult.success ? 'var(--badge-green-bg)' : 'var(--badge-rose-bg)',
+          border: `1px solid ${testResult.success ? 'var(--badge-green-border)' : 'var(--badge-rose-border)'}`,
+          color: testResult.success ? 'var(--badge-green-text)' : 'var(--badge-rose-text)',
           display: 'flex',
           alignItems: 'center',
           gap: 8,

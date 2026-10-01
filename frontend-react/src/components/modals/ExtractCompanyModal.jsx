@@ -139,7 +139,7 @@ export default function ExtractCompanyModal() {
         {/* Header */}
         <div className="modal-header">
           <div className="modal-title-group">
-            <div className="modal-icon-badge" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8' }}>
+            <div className="modal-icon-badge" style={{ background: 'var(--badge-blue-bg)', color: 'var(--badge-blue-text)' }}>
               <Building2 size={18} />
             </div>
             <div>
@@ -250,19 +250,19 @@ export default function ExtractCompanyModal() {
               </div>
 
               {/* Engine Selector */}
-              <div style={{ background: 'var(--card-bg, rgba(255,255,255,0.03))', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
+              <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <span style={{ fontSize: '0.84rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Sparkles size={14} color="#818cf8" /> Choose Extraction Engines:
+                    <Sparkles size={14} style={{ color: 'var(--accent)' }} /> Choose Extraction Engines:
                   </span>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button
                       type="button"
                       onClick={() => handleSelectEngines('both')}
                       style={{
-                        background: useApify && useApollo ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
-                        borderColor: useApify && useApollo ? '#6366f1' : 'var(--border)',
-                        color: useApify && useApollo ? '#a5b4fc' : 'var(--text-muted)',
+                        background: useApify && useApollo ? 'var(--badge-blue-bg)' : 'transparent',
+                        borderColor: useApify && useApollo ? 'var(--badge-blue-border)' : 'var(--border)',
+                        color: useApify && useApollo ? 'var(--badge-blue-text)' : 'var(--text-muted)',
                         padding: '3px 8px',
                         fontSize: '0.72rem',
                         borderRadius: 4,
@@ -276,9 +276,9 @@ export default function ExtractCompanyModal() {
                       type="button"
                       onClick={() => handleSelectEngines('apify')}
                       style={{
-                        background: useApify && !useApollo ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
-                        borderColor: useApify && !useApollo ? '#10b981' : 'var(--border)',
-                        color: useApify && !useApollo ? '#34d399' : 'var(--text-muted)',
+                        background: useApify && !useApollo ? 'var(--badge-green-bg)' : 'transparent',
+                        borderColor: useApify && !useApollo ? 'var(--badge-green-border)' : 'var(--border)',
+                        color: useApify && !useApollo ? 'var(--badge-green-text)' : 'var(--text-muted)',
                         padding: '3px 8px',
                         fontSize: '0.72rem',
                         borderRadius: 4,
@@ -292,9 +292,9 @@ export default function ExtractCompanyModal() {
                       type="button"
                       onClick={() => handleSelectEngines('apollo')}
                       style={{
-                        background: !useApify && useApollo ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
-                        borderColor: !useApify && useApollo ? '#6366f1' : 'var(--border)',
-                        color: !useApify && useApollo ? '#a5b4fc' : 'var(--text-muted)',
+                        background: !useApify && useApollo ? 'var(--badge-blue-bg)' : 'transparent',
+                        borderColor: !useApify && useApollo ? 'var(--badge-blue-border)' : 'var(--border)',
+                        color: !useApify && useApollo ? 'var(--badge-blue-text)' : 'var(--text-muted)',
                         padding: '3px 8px',
                         fontSize: '0.72rem',
                         borderRadius: 4,
@@ -316,8 +316,8 @@ export default function ExtractCompanyModal() {
                       gap: 10,
                       padding: '12px 14px',
                       borderRadius: 8,
-                      border: `1px solid ${useApify ? 'rgba(16, 185, 129, 0.4)' : 'var(--border)'}`,
-                      background: useApify ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
+                      border: `1px solid ${useApify ? 'var(--badge-green-border)' : 'var(--border)'}`,
+                      background: useApify ? 'var(--badge-green-bg)' : 'transparent',
                       cursor: 'pointer',
                     }}
                   >
@@ -329,7 +329,7 @@ export default function ExtractCompanyModal() {
                       style={{ marginTop: 2 }}
                     />
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.84rem', color: '#10b981' }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.84rem', color: 'var(--badge-green-text)' }}>
                         Apify Google Maps
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4 }}>
@@ -346,8 +346,8 @@ export default function ExtractCompanyModal() {
                       gap: 10,
                       padding: '12px 14px',
                       borderRadius: 8,
-                      border: `1px solid ${useApollo ? 'rgba(99, 102, 241, 0.4)' : 'var(--border)'}`,
-                      background: useApollo ? 'rgba(99, 102, 241, 0.08)' : 'transparent',
+                      border: `1px solid ${useApollo ? 'var(--badge-blue-border)' : 'var(--border)'}`,
+                      background: useApollo ? 'var(--badge-blue-bg)' : 'transparent',
                       cursor: 'pointer',
                     }}
                   >
@@ -359,7 +359,7 @@ export default function ExtractCompanyModal() {
                       style={{ marginTop: 2 }}
                     />
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.84rem', color: '#818cf8' }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.84rem', color: 'var(--badge-blue-text)' }}>
                         Apollo.io B2B Contacts
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4 }}>
@@ -429,7 +429,7 @@ export default function ExtractCompanyModal() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,
-                color: '#34d399',
+                color: 'var(--badge-green-text)',
                 fontSize: '0.86rem'
               }}>
                 <CheckCircle2 size={18} />
@@ -438,7 +438,7 @@ export default function ExtractCompanyModal() {
 
               {/* Company Summary Card */}
               <div style={{
-                background: 'var(--card-bg, rgba(255,255,255,0.03))',
+                background: 'var(--bg-subtle)',
                 border: '1px solid var(--border)',
                 borderRadius: 10,
                 padding: 18,
@@ -453,8 +453,9 @@ export default function ExtractCompanyModal() {
                     </div>
                   </div>
                   <span style={{
-                    background: 'rgba(99, 102, 241, 0.2)',
-                    color: '#818cf8',
+                    background: 'var(--badge-blue-bg)',
+                    color: 'var(--badge-blue-text)',
+                    border: '1px solid var(--badge-blue-border)',
                     padding: '3px 8px',
                     borderRadius: 6,
                     fontSize: '0.72rem',
@@ -467,15 +468,15 @@ export default function ExtractCompanyModal() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginTop: 12 }}>
                   {/* Phone */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem' }}>
-                    <Phone size={14} color="#10b981" />
+                    <Phone size={14} style={{ color: 'var(--badge-green-text)' }} />
                     <span>{result.record?.Primary_Phone || result.record?.WhatsApp_Number || 'No phone discovered'}</span>
                   </div>
 
                   {/* Website */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem' }}>
-                    <Globe size={14} color="#60a5fa" />
+                    <Globe size={14} style={{ color: 'var(--accent)' }} />
                     {result.record?.Website_URL ? (
-                      <a href={result.record.Website_URL} target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <a href={result.record.Website_URL} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}>
                         {result.record.Website_URL.replace(/^https?:\/\//, '')}
                         <ExternalLink size={11} />
                       </a>
@@ -486,7 +487,7 @@ export default function ExtractCompanyModal() {
 
                   {/* Decision Maker */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem' }}>
-                    <UserCheck size={14} color="#c084fc" />
+                    <UserCheck size={14} style={{ color: 'var(--accent)' }} />
                     <span>
                       {result.record?.DM_Full_Name ? (
                         <strong>{result.record.DM_Full_Name} ({result.record.DM_Title || 'Executive'})</strong>
@@ -498,9 +499,9 @@ export default function ExtractCompanyModal() {
 
                   {/* Verified Email */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem' }}>
-                    <Mail size={14} color="#f59e0b" />
+                    <Mail size={14} style={{ color: 'var(--badge-amber-text)' }} />
                     {result.record?.DM_Direct_Email ? (
-                      <span style={{ color: '#34d399', fontWeight: 600 }}>
+                      <span style={{ color: 'var(--badge-green-text)', fontWeight: 600 }}>
                         {result.record.DM_Direct_Email}
                         {result.record.DM_Email_Score ? ` (${result.record.DM_Email_Score}% score)` : ''}
                       </span>

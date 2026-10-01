@@ -1,12 +1,15 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
+import { usePipeline } from '../../context/PipelineContext';
 import KpiCards from '../pipeline/KpiCards';
 import PipelineToolbar from '../pipeline/PipelineToolbar';
 import LeadsTable from '../pipeline/LeadsTable';
+import PipelineKanban from '../pipeline/PipelineKanban';
 import Pagination from '../pipeline/Pagination';
 
 export default function PipelineView() {
   const { stats } = useApp();
+  const { viewMode } = usePipeline();
 
   return (
     <div className="tab-pane active" id="tab-database">
@@ -18,7 +21,7 @@ export default function PipelineView() {
         <div className="panel-header">
           <div>
             <div className="panel-title">Companies & Pipeline</div>
-            <div className="panel-subtitle">Search, filter, manage lead status, and view verified business records.</div>
+            <div className="panel-subtitle">Search, filter, manage lead status, and track sales pipeline progress.</div>
           </div>
           <div>
             <span id="totalTableCount" className="badge badge-gray">
@@ -30,11 +33,15 @@ export default function PipelineView() {
         {/* Enhanced 2-Tier Pipeline Control Panel */}
         <PipelineToolbar />
 
-        {/* Data Table */}
-        <LeadsTable />
-
-        {/* Pagination Bar */}
-        <Pagination />
+        {/* View Switcher: Table vs Visual Kanban Board */}
+        {viewMode === 'kanban' ? (
+          <PipelineKanban />
+        ) : (
+          <>
+            <LeadsTable />
+            <Pagination />
+          </>
+        )}
       </div>
     </div>
   );

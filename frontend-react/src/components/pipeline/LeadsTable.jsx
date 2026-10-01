@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { usePipeline } from '../../context/PipelineContext';
-import { Eye } from 'lucide-react';
+import { api } from '../../api/client';
+import { Eye, Loader2 } from 'lucide-react';
 
 function cleanDomain(url) {
   if (!url) return '';
@@ -15,45 +16,173 @@ function getInitials(name) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function getStatusBadge(status) {
+function getStatusClass(status) {
   const st = (status || 'New').trim();
   switch (st) {
-    case 'New':
-      return <span className="badge badge-blue">New</span>;
-    case 'Contacted':
-      return <span className="badge badge-purple">Contacted</span>;
-    case 'Qualified':
-      return <span className="badge badge-emerald">Qualified</span>;
+    case 'New': return 'badge-blue';
+    case 'Contacted': return 'badge-purple';
+    case 'Qualified': return 'badge-emerald';
     case 'Proposal':
-    case 'Proposal_Sent':
-      return <span className="badge badge-cyan">Proposal</span>;
-    case 'Negotiation':
-      return <span className="badge badge-amber">Negotiation</span>;
+    case 'Proposal_Sent': return 'badge-cyan';
+    case 'Negotiation': return 'badge-amber';
     case 'Closed_Won':
-    case 'Won':
-      return <span className="badge badge-emerald" style={{ background: 'rgba(16,185,129,0.25)' }}>Won</span>;
+    case 'Won': return 'badge-emerald';
     case 'Closed_Lost':
-    case 'Lost':
-      return <span className="badge badge-rose">Lost</span>;
-    case 'Disqualified':
-      return <span className="badge badge-rose">Disqualified</span>;
-    default:
-      return <span className="badge badge-gray">{st.replace(/_/g, ' ')}</span>;
+    case 'Lost': return 'badge-rose';
+    case 'Disqualified': return 'badge-rose';
+    default: return 'badge-gray';
   }
 }
 
-function getOutreachBadge(val) {
+function getOutreachClass(val) {
   const st = (val || 'Not_Started').trim();
-  let colorClass = 'badge-gray';
-  if (st === 'Replied' || st === 'Meeting_Scheduled') colorClass = 'badge-emerald';
-  else if (st === 'In_Progress' || st === 'Contacted') colorClass = 'badge-cyan';
-  else if (st === 'Bounced' || st === 'Do_Not_Contact') colorClass = 'badge-rose';
-  return <span className={`badge ${colorClass}`}>{st.replace(/_/g, ' ')}</span>;
+  if (st === 'Replied' || st === 'Meeting_Scheduled') return 'badge-emerald';
+  if (st === 'In_Progress' || st === 'Contacted' || st === 'Email_Sent') return 'badge-cyan';
+  if (st === 'Bounced' || st === 'Do_Not_Contact') return 'badge-rose';
+  return 'badge-gray';
+}
+
+function InlineStatusSelect({ record, activeSheet, onUpdate, showToast }) {
+  const currentVal = record.Lead_Status || record.Status || 'New';
+  const [val, setVal] = useState(currentVal);
+  const [saving, setSaving] = useState(false);
+
+  const handleChange = async (e) => {
+    e.stopPropagation();
+    const newStatus = e.target.value;
+    setVal(newStatus);
+    try {
+      setSaving(true);
+      const res = await api.updateRecord(record.Record_ID, { status: newStatus }, activeSheet);
+      if (res?.record) {
+        onUpdate(res.record);
+        showToast(`${record.Company_Name || 'Lead'} marked as ${newStatus}`, 'success');
+      }
+    } catch (err) {
+      showToast(`Status update failed: ${err.message}`, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center' }}>
+      <select
+        value={val}
+        onChange={handleChange}
+        disabled={saving}
+        className={`inline-crm-select ${getStatusClass(val)}`}
+        title="Quick update lifecycle status"
+      >
+        <option value="New">New</option>
+        <option value="Contacted">Contacted</option>
+        <option value="In_Conversation">In Conversation</option>
+        <option value="Qualified">Qualified</option>
+        <option value="Proposal_Sent">Proposal</option>
+        <option value="Meeting_Scheduled">Meeting</option>
+        <option value="Negotiation">Negotiation</option>
+        <option value="Won">Won</option>
+        <option value="Lost">Lost</option>
+        <option value="Disqualified">Disqualified</option>
+      </select>
+    </div>
+  );
+}
+
+function InlineOutreachSelect({ record, activeSheet, onUpdate, showToast }) {
+  const currentVal = record.Outreach_Status || 'Not_Started';
+  const [val, setVal] = useState(currentVal);
+  const [saving, setSaving] = useState(false);
+
+  const handleChange = async (e) => {
+    e.stopPropagation();
+    const newStatus = e.target.value;
+    setVal(newStatus);
+    try {
+      setSaving(true);
+      const res = await api.updateRecord(record.Record_ID, { outreach_status: newStatus }, activeSheet);
+      if (res?.record) {
+        onUpdate(res.record);
+        showToast(`${record.Company_Name || 'Lead'} outreach set to ${newStatus.replace(/_/g, ' ')}`, 'success');
+      }
+    } catch (err) {
+      showToast(`Outreach update failed: ${err.message}`, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center' }}>
+      <select
+        value={val}
+        onChange={handleChange}
+        disabled={saving}
+        className={`inline-crm-select ${getOutreachClass(val)}`}
+        title="Quick update outreach status"
+      >
+        <option value="Not_Started">Not Started</option>
+        <option value="Queued">Queued</option>
+        <option value="Email_Sent">Email Sent</option>
+        <option value="Phone_Called">Phone Called</option>
+        <option value="In_Discussion">In Discussion</option>
+        <option value="Replied">Replied</option>
+        <option value="Meeting_Scheduled">Meeting</option>
+        <option value="Bounced">Bounced</option>
+        <option value="Do_Not_Contact">Do Not Contact</option>
+      </select>
+    </div>
+  );
+}
+
+function InlineStageSelect({ record, activeSheet, onUpdate, showToast }) {
+  const currentVal = record.Pipeline_Stage || 'Identified';
+  const [val, setVal] = useState(currentVal);
+  const [saving, setSaving] = useState(false);
+
+  const handleChange = async (e) => {
+    e.stopPropagation();
+    const newStage = e.target.value;
+    setVal(newStage);
+    try {
+      setSaving(true);
+      const res = await api.updateRecord(record.Record_ID, { pipeline_stage: newStage }, activeSheet);
+      if (res?.record) {
+        onUpdate(res.record);
+        showToast(`${record.Company_Name || 'Lead'} moved to ${newStage.replace(/_/g, ' ')}`, 'success');
+      }
+    } catch (err) {
+      showToast(`Stage update failed: ${err.message}`, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center' }}>
+      <select
+        value={val}
+        onChange={handleChange}
+        disabled={saving}
+        className="inline-crm-select badge-indigo"
+        title="Quick advance pipeline stage"
+      >
+        <option value="Identified">1. Identified</option>
+        <option value="Contacted">2. Contacted</option>
+        <option value="Qualified">3. Qualified</option>
+        <option value="Demo_Scheduled">4. Demo</option>
+        <option value="Proposal">5. Proposal</option>
+        <option value="Negotiation">6. Negotiation</option>
+        <option value="Closed_Won">7. Closed Won</option>
+        <option value="Closed_Lost">8. Closed Lost</option>
+      </select>
+    </div>
+  );
 }
 
 export default function LeadsTable() {
-  const { fieldCatalog, openModal, selectedRecordIds, setSelectedRecordIds } = useApp();
-  const { records, loading, selectedColumns } = usePipeline();
+  const { fieldCatalog, openModal, selectedRecordIds, setSelectedRecordIds, activeSheet, showToast } = useApp();
+  const { records, loading, selectedColumns, updateLocalRecord } = usePipeline();
 
   const columnsMap = useMemo(() => {
     const map = {};
@@ -251,14 +380,35 @@ export default function LeadsTable() {
       }
 
       case 'Outreach_Status':
-        return getOutreachBadge(val);
+        return (
+          <InlineOutreachSelect 
+            record={r} 
+            activeSheet={activeSheet} 
+            onUpdate={updateLocalRecord} 
+            showToast={showToast} 
+          />
+        );
 
       case 'Lead_Status':
       case 'Status':
-        return getStatusBadge(val);
+        return (
+          <InlineStatusSelect 
+            record={r} 
+            activeSheet={activeSheet} 
+            onUpdate={updateLocalRecord} 
+            showToast={showToast} 
+          />
+        );
 
       case 'Pipeline_Stage':
-        return val ? <span className="badge badge-indigo">{val}</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>;
+        return (
+          <InlineStageSelect 
+            record={r} 
+            activeSheet={activeSheet} 
+            onUpdate={updateLocalRecord} 
+            showToast={showToast} 
+          />
+        );
 
       case 'Deal_Value':
       case 'Deal_Value_SAR':

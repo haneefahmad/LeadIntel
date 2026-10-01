@@ -268,7 +268,7 @@ export default function ColumnsModal() {
         {/* Footer */}
         <div className="modal-actions-footer columns-modal-footer">
           <div className="columns-selected-indicator" style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-            <strong style={{ color: '#818cf8' }}>{safeSelected.length}</strong> of {allFields.length} columns active
+            <strong style={{ color: 'var(--accent)' }}>{safeSelected.length}</strong> of {allFields.length} columns active
           </div>
           <div className="footer-actions-right" style={{ display: 'flex', gap: '8px' }}>
             <button

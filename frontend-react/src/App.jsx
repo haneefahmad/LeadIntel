@@ -63,26 +63,26 @@ function MainLayout() {
               <line x1="12" y1="2" x2="12" y2="12" />
             </svg>
           </div>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#ffffff', margin: '0 0 8px 0' }}>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text)', margin: '0 0 8px 0' }}>
             Server Stopped Successfully
           </h2>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted, #94a3b8)', lineHeight: 1.5, margin: '0 0 24px 0' }}>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 24px 0' }}>
             The LeadIntel backend server process has cleanly terminated and port <strong>8000</strong> has been released. You can safely close this browser tab.
           </p>
           <div 
             style={{
-              backgroundColor: 'rgba(15, 23, 42, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
+              backgroundColor: 'var(--bg-subtle)',
+              border: '1px solid var(--border)',
               borderRadius: 8,
               padding: '14px 16px',
               textAlign: 'left',
             }}
           >
-            <div style={{ color: 'var(--text-muted, #94a3b8)', fontSize: '0.72rem', marginBottom: 6, fontWeight: 500 }}>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginBottom: 6, fontWeight: 500 }}>
               To restart the server, run in your terminal:
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <code style={{ color: '#818cf8', fontWeight: 600, fontSize: '0.85rem', fontFamily: 'monospace' }}>
+              <code style={{ color: 'var(--accent)', fontWeight: 600, fontSize: '0.85rem', fontFamily: 'monospace' }}>
                 python run_web.py
               </code>
             </div>

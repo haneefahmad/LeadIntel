@@ -107,7 +107,7 @@ export default function RunLogsView() {
                     <td style={{ textAlign: 'right' }}>
                       <strong>{(log.Records_Returned || log.records_returned || 0).toLocaleString()}</strong>
                     </td>
-                    <td style={{ textAlign: 'right', color: '#10b981' }}>
+                    <td style={{ textAlign: 'right', color: 'var(--badge-green-text)' }}>
                       +{(log.Added_to_Master || log.added_to_master || 0).toLocaleString()}
                     </td>
                     <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>

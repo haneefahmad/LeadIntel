@@ -256,7 +256,7 @@ export default function Header() {
                 </svg>
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: '#ffffff' }}>Stop Backend Server?</h3>
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--text)' }}>Stop Backend Server?</h3>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>LeadIntel OS Process Shutdown</div>
               </div>
             </div>
