@@ -12,6 +12,7 @@ import EnrichModal from './components/modals/EnrichModal';
 import SheetsModal from './components/modals/SheetsModal';
 import ColumnsModal from './components/modals/ColumnsModal';
 import SettingsModal from './components/modals/SettingsModal';
+import ExtractCompanyModal from './components/modals/ExtractCompanyModal';
 
 import ErrorBoundary from './components/common/ErrorBoundary';
 
@@ -131,6 +132,9 @@ function MainLayout() {
       </ErrorBoundary>
       <ErrorBoundary fallbackTitle="Settings Modal Error">
         <SettingsModal />
+      </ErrorBoundary>
+      <ErrorBoundary fallbackTitle="Extract Company Modal Error">
+        <ExtractCompanyModal />
       </ErrorBoundary>
 
       {/* Toast Alerts Container */}

@@ -376,3 +376,67 @@ def _country_code(country: str | None) -> str:
         if clean.endswith(name) or f", {name}" in clean:
             return code
     return ""
+
+
+async def scrape_single_company(
+    company_name: str,
+    city: str = "",
+    country: str = "",
+) -> dict | None:
+    """
+    Queries Apify Google Places for a single specific business name.
+    Returns normalized canonical record dict or None if not found.
+    """
+    token = getattr(config, "APIFY_TOKEN", "") or ""
+    if not token or token.lower() in ("your_apify_token_here", "your_token_here", "none", "null"):
+        raise PermissionError("Apify API Token is not configured. Please add it in Settings.")
+
+    loop = asyncio.get_running_loop()
+    client = ApifyClient(token)
+
+    search_query = f"{company_name.strip()} {city.strip()}".strip()
+    location_query = f"{city.strip()}, {country.strip()}".strip(", ")
+    country_code = _country_code(country)
+
+    actor_input = {
+        "searchStringsArray": [search_query],
+        "locationQuery": location_query or (country or ""),
+        "maxCrawledPlacesPerSearch": 1,
+        "language": "en",
+        "countryCode": country_code,
+        "includeHistogram": False,
+        "includeOpeningHours": False,
+        "includeImages": False,
+        "includePeopleAlsoSearch": False,
+        "exportPlaceUrls": False,
+        "additionalInfo": False,
+        "scrapeDirectories": False,
+        "deeperCityScrape": False,
+        "startUrls": [],
+    }
+
+    def _run() -> list[dict]:
+        try:
+            run = client.actor(ACTOR_ID).call(run_input=actor_input)
+            if not run or run.status != "SUCCEEDED":
+                return []
+            dataset_id = run.default_dataset_id
+            if not dataset_id:
+                return []
+            return list(client.dataset(dataset_id).iterate_items())
+        except Exception as e:
+            logger.warning("Apify single scrape error for '%s': %s", company_name, e)
+            return []
+
+    raw_items = await loop.run_in_executor(None, _run)
+    if not raw_items:
+        return None
+
+    return _normalize(
+        raw=raw_items[0],
+        query=company_name,
+        country=country or "Saudi Arabia",
+        added_by="Single Company Extraction",
+        industry_key="general",
+        city_hint=city,
+    )

@@ -73,6 +73,26 @@ export default function PipelineToolbar() {
           <div className="enrichment-btn-group">
             <button
               type="button"
+              className="enrich-btn"
+              id="btnExtractCompany"
+              onClick={() => openModal('extractCompany')}
+              title="Extract single company firmographics & contacts via Apify or Apollo"
+              style={{ borderColor: 'rgba(59, 130, 246, 0.4)', background: 'rgba(59, 130, 246, 0.12)', color: '#60a5fa' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 21h18" />
+                <path d="M5 21V7l8-4v18" />
+                <path d="M19 21V11l-6-4" />
+                <path d="M9 9v.01" />
+                <path d="M9 12v.01" />
+                <path d="M9 15v.01" />
+                <path d="M9 18v.01" />
+              </svg>
+              <span>+ Extract Company</span>
+            </button>
+
+            <button
+              type="button"
               className="enrich-btn enrich-apollo-btn"
               id="btnEnrichApollo"
               onClick={() => openModal('enrich', 'apollo')}
@@ -111,6 +131,21 @@ export default function PipelineToolbar() {
           </div>
 
           <div className="view-controls-group">
+            <button
+              type="button"
+              className="action-btn btn-secondary"
+              id="btnUploadDatasheet"
+              onClick={() => openModal('sheets', { tab: 'upload' })}
+              title="Upload an Excel (.xlsx) or CSV datasheet into this workspace"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <span>Upload Sheet</span>
+            </button>
+
             <button
               type="button"
               className="action-btn btn-secondary columns-btn"

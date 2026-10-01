@@ -55,7 +55,11 @@ export const api = {
   getSheets: () => request('/sheets'),
   selectSheet: (sheetName) => request('/sheets/select', { method: 'POST', body: { sheet: sheetName } }),
   createSheet: (name, setActive = true) => request('/sheets', { method: 'POST', body: { name, set_active: setActive } }),
+  uploadSheet: (payload) => request('/sheets/upload', { method: 'POST', body: payload }),
   deleteSheet: (name) => request(`/sheets/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  // Single Company Extraction
+  extractCompany: (payload) => request('/companies/extract', { method: 'POST', body: payload }),
 
   // Stats & KPIs
   getStats: (sheet) => {

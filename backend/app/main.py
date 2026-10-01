@@ -5,6 +5,7 @@ Mounted with modular frontend architecture.
 """
 
 import asyncio
+import base64
 import csv
 from datetime import datetime
 import io
@@ -116,6 +117,22 @@ class SheetSelectRequest(BaseModel):
     @property
     def target_name(self) -> str:
         return self.sheet or self.name
+
+
+class SheetUploadRequest(BaseModel):
+    sheet_name: str
+    filename: str
+    file_base64: str
+    set_active: bool = True
+
+
+class SingleCompanyExtractRequest(BaseModel):
+    company_name: str
+    city: str = ""
+    country: str = "Saudi Arabia"
+    domain: str = ""
+    engines: list[str] = ["apify", "apollo"]
+    sheet_name: str | None = None
 
 
 class SettingsRequest(BaseModel):
@@ -499,6 +516,167 @@ def select_sheet(req: SheetSelectRequest):
     }
 
 
+@app.post("/api/sheets/upload")
+def upload_datasheet(req: SheetUploadRequest):
+    """
+    Accepts an uploaded Excel (.xlsx, .xls) or CSV file in base64 format,
+    maps columns into canonical master schema, creates or updates a dedicated sheet database,
+    and returns sheet metadata ready for immediate viewing and on-demand extraction/enrichment.
+    """
+    if not req.file_base64:
+        raise HTTPException(status_code=400, detail="No file data provided.")
+
+    filename = req.filename or "uploaded_sheet.xlsx"
+    ext = Path(filename).suffix.lower()
+    if ext not in (".xlsx", ".csv", ".xls"):
+        raise HTTPException(status_code=400, detail="Only Excel (.xlsx, .xls) and CSV (.csv) files are supported.")
+
+    try:
+        b64_str = req.file_base64
+        if "," in b64_str:
+            b64_str = b64_str.split(",", 1)[1]
+        file_bytes = base64.b64decode(b64_str)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid base64 payload: {e}")
+
+    raw_records: list[dict[str, Any]] = []
+
+    if ext in (".xlsx", ".xls"):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows or len(rows) < 2:
+                raise HTTPException(status_code=400, detail="Uploaded Excel file is empty or missing headers.")
+            headers = [str(h).strip() if h is not None else f"Column_{i+1}" for i, h in enumerate(rows[0])]
+            for row in rows[1:]:
+                if not any(row):
+                    continue
+                rec = {}
+                for h, val in zip(headers, row):
+                    if val is not None:
+                        rec[h] = str(val).strip() if isinstance(val, (int, float, str)) else val
+                if rec:
+                    raw_records.append(rec)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("Excel parsing failed: %s", e)
+            raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {e}")
+
+    elif ext == ".csv":
+        text_content = ""
+        for encoding in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
+            try:
+                text_content = file_bytes.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        if not text_content:
+            raise HTTPException(status_code=400, detail="Could not decode CSV file. Please ensure it is saved in UTF-8.")
+
+        try:
+            reader = csv.DictReader(io.StringIO(text_content))
+            for row in reader:
+                clean_row = {str(k).strip(): str(v).strip() for k, v in row.items() if k is not None and v is not None}
+                if any(clean_row.values()):
+                    raw_records.append(clean_row)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse CSV file: {e}")
+
+    if not raw_records:
+        raise HTTPException(status_code=400, detail="No readable data rows found in the uploaded file.")
+
+    default_name = Path(filename).stem
+    sheet_raw = req.sheet_name.strip() if req.sheet_name else default_name
+    clean_sheet = config.clean_sheet_name(sheet_raw)
+    db_path, xlsx_path = config.get_sheet_paths(clean_sheet)
+
+    db.init_db(clean_sheet)
+
+    normalized_list = []
+    now_str = datetime.now().strftime("%Y-%m-%d")
+
+    for i, raw in enumerate(raw_records):
+        norm: dict[str, Any] = {}
+        unmapped: list[str] = []
+
+        for key, val in raw.items():
+            if val is None or str(val).strip() == "":
+                continue
+            k_clean = str(key).strip()
+            v_clean = str(val).strip()
+
+            canonical = db.COLUMN_ALIASES.get(k_clean)
+            if not canonical:
+                for alias_k, canon_v in db.COLUMN_ALIASES.items():
+                    if alias_k.lower() == k_clean.lower():
+                        canonical = canon_v
+                        break
+
+            if canonical and canonical in db.MASTER_COLUMNS:
+                norm[canonical] = v_clean
+            else:
+                unmapped.append(f"{k_clean}: {v_clean}")
+
+        if not norm.get("Company_Name") and norm.get("Website_URL"):
+            domain = apollo_client.extract_clean_domain(norm["Website_URL"])
+            if domain:
+                norm["Company_Name"] = domain.split(".")[0].capitalize()
+
+        if not norm.get("Company_Name"):
+            if not norm.get("Website_URL") and not norm.get("Primary_Phone") and not norm.get("DM_Full_Name"):
+                continue
+            norm["Company_Name"] = f"Lead-{i+1}"
+
+        if unmapped and not norm.get("CRM_Notes"):
+            norm["CRM_Notes"] = " | ".join(unmapped[:6])
+
+        norm["Added_By"] = "Datasheet Upload"
+        norm["Date_Added"] = norm.get("Date_Added") or now_str
+        norm["Lead_Status"] = norm.get("Lead_Status") or "New"
+        norm["Pipeline_Stage"] = norm.get("Pipeline_Stage") or "Lead"
+        norm["Outreach_Status"] = norm.get("Outreach_Status") or "Uncontacted"
+        if norm.get("Website_URL"):
+            norm["Has_Website"] = "Yes"
+
+        normalized_list.append(norm)
+
+    if not normalized_list:
+        raise HTTPException(status_code=400, detail="No valid business records could be extracted from the uploaded file.")
+
+    inserted, updated = db.upsert_records_batch(normalized_list, commit=True, sheet_name=clean_sheet)
+
+    try:
+        prev_sheet = config.get_active_sheet()
+        config.set_active_sheet(clean_sheet)
+        XLSXExporter().export(str(xlsx_path))
+        if not req.set_active:
+            config.set_active_sheet(prev_sheet)
+    except Exception as exc:
+        logger.warning("Could not export initial XLSX for %s: %s", clean_sheet, exc)
+
+    if req.set_active:
+        config.set_active_sheet(clean_sheet)
+
+    return {
+        "status": "success",
+        "sheet": {
+            "name": clean_sheet,
+            "db_path": str(db_path),
+            "xlsx_path": str(xlsx_path),
+            "is_active": config.get_active_sheet() == clean_sheet,
+        },
+        "rows_processed": len(raw_records),
+        "inserted": inserted,
+        "updated": updated,
+        "active_sheet": config.get_active_sheet(),
+        "sheets": config.list_available_sheets(),
+        "message": f"Successfully uploaded and mapped {len(normalized_list)} records into sheet '{clean_sheet}'.",
+    }
+
+
 @app.delete("/api/sheets/{sheet_name}")
 def delete_sheet_endpoint(sheet_name: str):
     """Permanently deletes a custom master sheet and its associated database/export files."""
@@ -638,6 +816,132 @@ def suppress_lead(record_id: str, req: SuppressRequest = SuppressRequest()):
     if not success:
         raise HTTPException(status_code=404, detail="Record not found")
     return {"status": "success", "message": f"Lead {record_id} successfully suppressed."}
+
+
+@app.post("/api/companies/extract")
+async def extract_single_company(req: SingleCompanyExtractRequest):
+    """
+    Extracts high-fidelity company details using Apify (Google Maps/Places),
+    Apollo (B2B contacts/executive leadership), or both, based on user selection.
+    Saves or non-destructively merges the result into the target master sheet.
+    """
+    company_name = req.company_name.strip()
+    if not company_name:
+        raise HTTPException(status_code=400, detail="Company name is required.")
+
+    target_sheet = config.clean_sheet_name(req.sheet_name or config.get_active_sheet())
+    config.set_active_sheet(target_sheet)
+    db.init_db(target_sheet)
+
+    selected_engines = [e.lower().strip() for e in (req.engines or ["apify", "apollo"])]
+    if not selected_engines:
+        raise HTTPException(status_code=400, detail="At least one extraction engine (Apify or Apollo) must be selected.")
+
+    # Check for existing record in database to update non-destructively
+    existing_records, _ = db.query_records(q=company_name, limit=5)
+    matched_record = None
+    for r in existing_records:
+        if (r.get("Company_Name") or "").strip().lower() == company_name.lower():
+            matched_record = dict(r)
+            break
+
+    record: dict[str, Any] = dict(matched_record) if matched_record else {}
+    record["Company_Name"] = record.get("Company_Name") or company_name
+    if req.city and not record.get("City"):
+        record["City"] = req.city.strip()
+    if req.country and not record.get("Country"):
+        record["Country"] = req.country.strip()
+    if req.domain and not record.get("Website_URL"):
+        clean_d = apollo_client.extract_clean_domain(req.domain)
+        record["Website_URL"] = req.domain.strip() if req.domain.startswith("http") else f"https://{clean_d or req.domain.strip()}"
+        record["Has_Website"] = "Yes"
+
+    engine_notes: list[str] = []
+
+    # ── Engine 1: Apify Google Maps / Places ──────────────────────────────────
+    if "apify" in selected_engines:
+        try:
+            apify_data = await scraper.scrape_single_company(
+                company_name=company_name,
+                city=record.get("City") or req.city or "",
+                country=record.get("Country") or req.country or "Saudi Arabia",
+            )
+            if apify_data:
+                for k, v in apify_data.items():
+                    if v and enrichment_service.is_field_empty(record.get(k), k):
+                        record[k] = v
+                engine_notes.append("Apify (Google Maps) firmographics retrieved")
+            else:
+                engine_notes.append("Apify (Google Maps) found no matching place")
+        except PermissionError as pe:
+            if selected_engines == ["apify"]:
+                raise HTTPException(status_code=400, detail=str(pe))
+            logger.warning("Apify single scrape permission error: %s", pe)
+            engine_notes.append("Apify skipped (API token missing)")
+        except Exception as e:
+            logger.warning("Apify single scrape error: %s", e)
+            engine_notes.append(f"Apify error: {e}")
+
+    # ── Engine 2: Apollo.io Decision Maker & Contact Enrichment ───────────────
+    if "apollo" in selected_engines:
+        ap_client = apollo_client.ApolloClient()
+        is_ready, ap_msg = ap_client.is_configured()
+        if is_ready:
+            try:
+                apollo_fields = await ap_client.enrich_lead(record, enrich_firmographics=True)
+                if apollo_fields:
+                    for k, v in apollo_fields.items():
+                        if v and enrichment_service.is_field_empty(record.get(k), k):
+                            record[k] = v
+                    engine_notes.append("Apollo.io executive contact & email enriched")
+                else:
+                    engine_notes.append("Apollo.io found no additional verified contact match")
+            except Exception as e:
+                logger.warning("Apollo enrichment error: %s", e)
+                engine_notes.append(f"Apollo error: {e}")
+        else:
+            if selected_engines == ["apollo"]:
+                raise HTTPException(status_code=400, detail=ap_msg)
+            engine_notes.append(f"Apollo skipped ({ap_msg})")
+
+    # Hygiene & scoring
+    if not record.get("Record_ID"):
+        record["Record_ID"] = f"REC-{uuid.uuid4().hex[:8].upper()}"
+    if not record.get("Date_Added"):
+        record["Date_Added"] = datetime.now().strftime("%Y-%m-%d")
+    record["Added_By"] = record.get("Added_By") or "Direct Extraction"
+    record["Lead_Status"] = record.get("Lead_Status") or "New"
+    record["Pipeline_Stage"] = record.get("Pipeline_Stage") or "Lead"
+    record["Outreach_Status"] = record.get("Outreach_Status") or "Uncontacted"
+    if record.get("Website_URL") and not record.get("Has_Website"):
+        record["Has_Website"] = "Yes"
+
+    # Save non-destructively to database
+    is_new, final_id = db.upsert_record(record, sheet_name=target_sheet)
+    record["Record_ID"] = final_id
+
+    # Log run
+    try:
+        db.log_run(
+            run_type="Single Company Extraction",
+            location=record.get("City") or req.city or "Global",
+            industry=record.get("Primary_Industry") or "General",
+            records_found=1,
+            records_saved=1,
+            cost_usd=0.01 if "apify" in selected_engines else 0.0,
+            sheet_name=target_sheet,
+        )
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "action": "created" if is_new else "updated",
+        "message": f"Successfully processed '{record.get('Company_Name')}' ({', '.join(engine_notes)}).",
+        "record": record,
+        "sheet_name": target_sheet,
+        "engine_notes": engine_notes,
+    }
 
 
 @app.post("/api/scrape/start")
