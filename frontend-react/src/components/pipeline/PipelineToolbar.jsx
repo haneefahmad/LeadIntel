@@ -311,6 +311,29 @@ export default function PipelineToolbar() {
             </select>
           </div>
 
+          {/* Company Size / Employee Count Filter Pill */}
+          <div className={`filter-pill-item ${filters.employee_count ? 'is-active' : ''}`} id="pillFilterEmployees">
+            <span className="pill-icon">👥</span>
+            <select
+              id="filterEmployees"
+              className="filter-select"
+              value={filters.employee_count || ''}
+              onChange={(e) => updateFilter('employee_count', e.target.value)}
+              title="Filter by company size / employee count"
+            >
+              <option value="">All Company Sizes</option>
+              <option value="1-10">1 – 10 employees {stats?.by_employee_range?.['1-10'] ? `(${stats.by_employee_range['1-10']})` : ''}</option>
+              <option value="11-50">11 – 50 employees {stats?.by_employee_range?.['11-50'] ? `(${stats.by_employee_range['11-50']})` : ''}</option>
+              <option value="51-200">51 – 200 employees {stats?.by_employee_range?.['51-200'] ? `(${stats.by_employee_range['51-200']})` : ''}</option>
+              <option value="201-500">201 – 500 employees {stats?.by_employee_range?.['201-500'] ? `(${stats.by_employee_range['201-500']})` : ''}</option>
+              <option value="501-1000">501 – 1,000 employees {stats?.by_employee_range?.['501-1000'] ? `(${stats.by_employee_range['501-1000']})` : ''}</option>
+              <option value="1001-5000">1,001 – 5,000 employees {stats?.by_employee_range?.['1001-5000'] ? `(${stats.by_employee_range['1001-5000']})` : ''}</option>
+              <option value="5000+">5,000+ employees {stats?.by_employee_range?.['5000+'] ? `(${stats.by_employee_range['5000+']})` : ''}</option>
+              <option value="has_count">Has Employee Count {stats?.with_employee_count ? `(${stats.with_employee_count.toLocaleString()})` : ''}</option>
+              <option value="no_count">Missing / Unspecified</option>
+            </select>
+          </div>
+
           {/* Status Filter Pill */}
           <div className={`filter-pill-item ${filters.status ? 'is-active' : ''}`} id="pillFilterStatus">
             <span className="pill-icon">🏷️</span>

@@ -12,6 +12,7 @@ const DEFAULT_FILTERS = {
   has_email: '',
   has_dm: '',
   has_phone: '',
+  employee_count: '',
 };
 
 export function PipelineProvider({ children }) {
@@ -87,6 +88,7 @@ export function PipelineProvider({ children }) {
         has_email: filters.has_email,
         has_dm: filters.has_dm,
         has_phone: filters.has_phone,
+        employee_count: filters.employee_count,
         page: currentPage,
         limit: limit,
       };

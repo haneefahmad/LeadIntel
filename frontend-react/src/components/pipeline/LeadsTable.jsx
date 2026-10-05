@@ -418,6 +418,20 @@ export default function LeadsTable() {
       case 'Last_Updated':
         return val ? <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{String(val)}</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>;
 
+      case 'Employee_Count':
+      case 'Employee_Count_Est': {
+        if (val == null || val === '') return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+        const cleanStr = String(val).replace(/,/g, '').trim();
+        const num = Number(cleanStr);
+        const formatted = !isNaN(num) && num > 0 ? num.toLocaleString() : String(val);
+        return (
+          <span className="badge badge-gray" style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span>👥</span>
+            <span>{formatted}</span>
+          </span>
+        );
+      }
+
       default:
         return val != null && val !== '' ? <span style={{ fontSize: '0.8rem' }}>{String(val)}</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>;
     }

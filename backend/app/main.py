@@ -738,6 +738,9 @@ def get_records(
     status: str = Query("", description="Filter by status"),
     has_website: str = Query("", description="Yes or No"),
     has_email: str = Query("", description="Yes or No"),
+    has_dm: str = Query("", description="Yes or No"),
+    has_phone: str = Query("", description="Yes or No"),
+    employee_count: str = Query("", description="Filter by employee count range, e.g. 1-10, 11-50, 5000+, has_count"),
     page: int = Query(1, ge=1),
     limit: int = Query(25, ge=5, le=200),
 ):
@@ -753,6 +756,9 @@ def get_records(
         status=status,
         has_website=has_website,
         has_email=has_email,
+        has_dm=has_dm,
+        has_phone=has_phone,
+        employee_count=employee_count,
         page=page,
         limit=limit,
     )

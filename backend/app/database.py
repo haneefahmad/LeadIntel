@@ -959,6 +959,17 @@ def insert_record(record: dict[str, Any]) -> tuple[bool, str]:
 
 # ── Querying, Filtering & Full-Text Search ────────────────────────────────────
 
+def _get_employee_expr(eng: sa.Engine) -> str:
+    """Returns database-dialect compatible SQL expression to parse numeric employee count."""
+    dialect_name = getattr(getattr(eng, "dialect", None), "name", "sqlite").lower()
+    if dialect_name == "postgresql":
+        return "CAST(NULLIF(regexp_replace(Employee_Count, '[^0-9]', '', 'g'), '') AS INTEGER)"
+    elif dialect_name == "mysql":
+        return "CAST(Employee_Count AS UNSIGNED)"
+    else:
+        return "CAST(REPLACE(REPLACE(Employee_Count, ',', ''), '+', '') AS INTEGER)"
+
+
 def query_records(
     q: str = "",
     city: str = "",
@@ -968,6 +979,7 @@ def query_records(
     has_email: str = "",
     has_dm: str = "",
     has_phone: str = "",
+    employee_count: str = "",
     page: int = 1,
     limit: int | None = 25,
     sheet_name: str | None = None,
@@ -1049,6 +1061,46 @@ def query_records(
                 "(DM_Direct_Phone IS NULL OR TRIM(DM_Direct_Phone) = ''))"
             )
 
+    if employee_count and employee_count.strip():
+        ec = employee_count.strip().lower()
+        emp_expr = _get_employee_expr(eng)
+
+        if ec in ("has", "yes", "true", "has_count", "1"):
+            conditions.append(
+                "Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown'"
+            )
+        elif ec in ("no", "false", "no_count", "0", "none"):
+            conditions.append(
+                "(Employee_Count IS NULL OR TRIM(Employee_Count) = '' OR LOWER(Employee_Count) = 'unknown')"
+            )
+        elif "-" in ec:
+            parts = ec.split("-", 1)
+            try:
+                min_digits = re.sub(r"[^\d]", "", parts[0])
+                max_digits = re.sub(r"[^\d]", "", parts[1])
+                if min_digits and max_digits:
+                    min_val = int(min_digits)
+                    max_val = int(max_digits)
+                    conditions.append(
+                        f"Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown' AND {emp_expr} BETWEEN :emp_min AND :emp_max"
+                    )
+                    params["emp_min"] = min_val
+                    params["emp_max"] = max_val
+            except (ValueError, TypeError):
+                pass
+        elif "+" in ec or "plus" in ec or (employee_count.endswith(" ") and employee_count.strip().isdigit()):
+            digits = re.sub(r"[^\d]", "", ec)
+            if digits:
+                conditions.append(
+                    f"Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown' AND {emp_expr} >= :emp_min"
+                )
+                params["emp_min"] = int(digits)
+        elif ec.isdigit():
+            conditions.append(
+                f"Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown' AND {emp_expr} = :emp_exact"
+            )
+            params["emp_exact"] = int(ec)
+
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     with eng.connect() as conn:
@@ -1125,6 +1177,7 @@ def get_stats(sheet_name: str | None = None) -> dict:
         params["sh"] = sh
 
     with eng.connect() as conn:
+        emp_expr = _get_employee_expr(eng)
         summary_sql = sa.text(f"""
             SELECT 
                 COUNT(*) AS total,
@@ -1132,11 +1185,27 @@ def get_stats(sheet_name: str | None = None) -> dict:
                 SUM(CASE WHEN Primary_Phone IS NOT NULL AND TRIM(Primary_Phone) != '' THEN 1 ELSE 0 END) AS with_phone,
                 SUM(CASE WHEN (General_Email IS NOT NULL AND TRIM(General_Email) != '') OR (DM_Direct_Email IS NOT NULL AND TRIM(DM_Direct_Email) != '') THEN 1 ELSE 0 END) AS with_email,
                 SUM(CASE WHEN WhatsApp_Number IS NOT NULL AND TRIM(WhatsApp_Number) != '' THEN 1 ELSE 0 END) AS with_whatsapp,
-                SUM(CASE WHEN DM_Full_Name IS NOT NULL AND TRIM(DM_Full_Name) != '' THEN 1 ELSE 0 END) AS with_dm
+                SUM(CASE WHEN DM_Full_Name IS NOT NULL AND TRIM(DM_Full_Name) != '' THEN 1 ELSE 0 END) AS with_dm,
+                SUM(CASE WHEN Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown' THEN 1 ELSE 0 END) AS with_employee_count
             FROM master_records
             {where_clause}
         """)
         summary_row = conn.execute(summary_sql, params).mappings().fetchone()
+
+        emp_cond = f"{where_clause} AND" if where_clause else "WHERE"
+        emp_sql = sa.text(f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN {emp_expr} BETWEEN 1 AND 10 THEN 1 ELSE 0 END), 0) AS r_1_10,
+                COALESCE(SUM(CASE WHEN {emp_expr} BETWEEN 11 AND 50 THEN 1 ELSE 0 END), 0) AS r_11_50,
+                COALESCE(SUM(CASE WHEN {emp_expr} BETWEEN 51 AND 200 THEN 1 ELSE 0 END), 0) AS r_51_200,
+                COALESCE(SUM(CASE WHEN {emp_expr} BETWEEN 201 AND 500 THEN 1 ELSE 0 END), 0) AS r_201_500,
+                COALESCE(SUM(CASE WHEN {emp_expr} BETWEEN 501 AND 1000 THEN 1 ELSE 0 END), 0) AS r_501_1000,
+                COALESCE(SUM(CASE WHEN {emp_expr} BETWEEN 1001 AND 5000 THEN 1 ELSE 0 END), 0) AS r_1001_5000,
+                COALESCE(SUM(CASE WHEN {emp_expr} >= 5000 THEN 1 ELSE 0 END), 0) AS r_5000_plus
+            FROM master_records
+            {emp_cond} Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown'
+        """)
+        emp_row = conn.execute(emp_sql, params).mappings().fetchone()
 
         city_sql = sa.text(f"""
             SELECT COALESCE(NULLIF(TRIM(City), ''), 'Unspecified') AS city_name, COUNT(*) AS cnt 
@@ -1178,6 +1247,7 @@ def get_stats(sheet_name: str | None = None) -> dict:
     with_email = (summary_row["with_email"] if summary_row else 0) or 0
     with_whatsapp = (summary_row["with_whatsapp"] if summary_row else 0) or 0
     with_dm = (summary_row["with_dm"] if summary_row else 0) or 0
+    with_employee_count = (summary_row["with_employee_count"] if summary_row else 0) or 0
 
     total_cost = round(((log_row["total_cost"] if log_row else 0.0) or 0.0), 2)
     total_runs = (log_row["total_runs"] if log_row else 0) or 0
@@ -1193,6 +1263,17 @@ def get_stats(sheet_name: str | None = None) -> dict:
         "with_whatsapp": with_whatsapp,
         "with_dm": with_dm,
         "dm_pct": round((with_dm / total * 100), 1) if total else 0,
+        "with_employee_count": with_employee_count,
+        "employee_count_pct": round((with_employee_count / total * 100), 1) if total else 0,
+        "by_employee_range": {
+            "1-10": int((emp_row["r_1_10"] if emp_row else 0) or 0),
+            "11-50": int((emp_row["r_11_50"] if emp_row else 0) or 0),
+            "51-200": int((emp_row["r_51_200"] if emp_row else 0) or 0),
+            "201-500": int((emp_row["r_201_500"] if emp_row else 0) or 0),
+            "501-1000": int((emp_row["r_501_1000"] if emp_row else 0) or 0),
+            "1001-5000": int((emp_row["r_1001_5000"] if emp_row else 0) or 0),
+            "5000+": int((emp_row["r_5000_plus"] if emp_row else 0) or 0),
+        },
         "total_cost_usd": total_cost,
         "by_city": {r["city_name"]: r["cnt"] for r in city_rows},
         "by_industry": {r["ind_name"]: r["cnt"] for r in ind_rows},
