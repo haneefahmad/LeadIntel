@@ -30,6 +30,7 @@ const EMPLOYEE_BRACKETS = [
   { id: '501-1000', label: '501 – 1,000 employees', short: '501–1k' },
   { id: '1001-5000', label: '1,001 – 5,000 employees', short: '1k–5k' },
   { id: '5000+', label: '5,000+ enterprise', short: '5000+' },
+  { id: 'has_count', label: 'Has Employee Count', short: 'With Size' },
   { id: 'no_count', label: 'Unspecified / Missing', short: 'Missing' },
 ];
 
@@ -47,7 +48,7 @@ const STATUS_OPTIONS = [
 
 /**
  * Enterprise Filter Popover Component
- * Supports search, live item counts, single & multi-choice, and keyboard/click outside dismissal.
+ * Supports search, live item counts, multi-choice, keyboard dismissal, and instant quick-clearing.
  */
 function FilterPopover({
   id,
@@ -56,33 +57,24 @@ function FilterPopover({
   value,
   onChange,
   options = [],
-  isMulti = false,
+  isMulti = true,
   searchable = false,
   searchPlaceholder = 'Search...',
+  isOpen = false,
+  onToggle,
+  onClose,
+  alignRight = false,
 }) {
-  const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const popoverRef = useRef(null);
 
   const selectedValues = useMemo(() => {
     if (!value) return [];
     if (Array.isArray(value)) return value;
-    return String(value).split(',').map(s => s.trim()).filter(Boolean);
+    return String(value)
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
   }, [value]);
-
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -108,14 +100,20 @@ function FilterPopover({
       } else {
         onChange(optId);
       }
-      setIsOpen(false);
+      onClose?.();
     }
+  };
+
+  const handleSelectAll = (e) => {
+    e?.stopPropagation();
+    const allIds = filteredOptions.map(o => o.id);
+    const combined = Array.from(new Set([...selectedValues, ...allIds]));
+    onChange(combined.join(','));
   };
 
   const handleClear = (e) => {
     e?.stopPropagation();
     onChange('');
-    setIsOpen(false);
   };
 
   const getButtonText = () => {
@@ -129,17 +127,20 @@ function FilterPopover({
       const o2 = options.find(o => o.id === selectedValues[1])?.short || selectedValues[1];
       return `${o1}, ${o2}`;
     }
-    return `${selectedValues.length} ${label}`;
+    return `${label} (${selectedValues.length})`;
   };
 
   const isFiltered = selectedValues.length > 0;
 
   return (
-    <div className={`filter-control-wrapper ${isFiltered ? 'is-active' : ''}`} ref={popoverRef} id={`filter-${id}`}>
+    <div
+      className={`filter-control-wrapper ${isFiltered ? 'is-active' : ''} ${isOpen ? 'is-open' : ''}`}
+      id={`filter-${id}`}
+    >
       <button
         type="button"
-        className={`filter-control-btn ${isFiltered ? 'is-active' : ''}`}
-        onClick={() => setIsOpen(prev => !prev)}
+        className={`filter-control-btn ${isFiltered ? 'is-active' : ''} ${isOpen ? 'is-open' : ''}`}
+        onClick={onToggle}
         aria-expanded={isOpen}
       >
         <span className="filter-control-icon">
@@ -151,6 +152,19 @@ function FilterPopover({
         {isFiltered && isMulti && selectedValues.length > 1 && (
           <span className="filter-control-count-pill">{selectedValues.length}</span>
         )}
+        {isFiltered && (
+          <span
+            role="button"
+            className="filter-quick-clear-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange('');
+            }}
+            title={`Clear ${label} filter`}
+          >
+            <X size={10} strokeWidth={2.6} />
+          </span>
+        )}
         <ChevronDown 
           size={12} 
           strokeWidth={2.2} 
@@ -159,7 +173,10 @@ function FilterPopover({
       </button>
 
       {isOpen && (
-        <div className="filter-popover-menu" onClick={(e) => e.stopPropagation()}>
+        <div
+          className={`filter-popover-menu ${alignRight ? 'align-right' : ''}`}
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* Popover Header */}
           <div className="filter-popover-header">
             <div className="filter-popover-title">
@@ -169,11 +186,26 @@ function FilterPopover({
                 <span className="popover-selection-indicator">({selectedValues.length})</span>
               )}
             </div>
-            {isFiltered && (
-              <button type="button" className="popover-clear-btn" onClick={handleClear}>
-                Reset
-              </button>
-            )}
+            <div className="popover-header-actions">
+              {isMulti && (
+                <button
+                  type="button"
+                  className="popover-action-text-btn"
+                  onClick={handleSelectAll}
+                >
+                  All
+                </button>
+              )}
+              {isFiltered && (
+                <button
+                  type="button"
+                  className="popover-clear-btn"
+                  onClick={handleClear}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Search Box */}
@@ -188,7 +220,11 @@ function FilterPopover({
                 autoFocus
               />
               {searchQuery && (
-                <button type="button" className="popover-search-clear" onClick={() => setSearchQuery('')}>
+                <button
+                  type="button"
+                  className="popover-search-clear"
+                  onClick={() => setSearchQuery('')}
+                >
                   <X size={10} strokeWidth={2.5} />
                 </button>
               )}
@@ -201,7 +237,7 @@ function FilterPopover({
               <button
                 type="button"
                 className={`filter-popover-item ${!isFiltered ? 'is-selected' : ''}`}
-                onClick={() => { onChange(''); setIsOpen(false); }}
+                onClick={() => { onChange(''); onClose?.(); }}
               >
                 <div className="item-main">
                   <span className="item-label">All {label}</span>
@@ -232,7 +268,10 @@ function FilterPopover({
                           <span className="status-dot" style={{ backgroundColor: opt.dotColor }} />
                         )
                       )}
-                      <span className="item-label">{opt.label}</span>
+                      {isMulti && opt.dotColor && (
+                        <span className="status-dot" style={{ backgroundColor: opt.dotColor }} />
+                      )}
+                      <span className="item-label" title={opt.label}>{opt.label}</span>
                     </div>
 
                     <div className="item-meta">
@@ -254,22 +293,15 @@ function FilterPopover({
           {/* Footer for multi-select */}
           {isMulti && (
             <div className="filter-popover-footer">
-              <button
-                type="button"
-                className="popover-footer-action"
-                onClick={() => {
-                  const allIds = options.map(o => o.id);
-                  onChange(allIds.join(','));
-                }}
-              >
-                Select All
-              </button>
+              <span className="popover-footer-summary">
+                {selectedValues.length} selected
+              </span>
               <button
                 type="button"
                 className="btn-apply-popover"
-                onClick={() => setIsOpen(false)}
+                onClick={onClose}
               >
-                Apply
+                Done
               </button>
             </div>
           )}
@@ -284,39 +316,31 @@ function FilterPopover({
  * For Website, Email, Decision Maker, Phone.
  */
 function ChannelFilterPopover({
+  id,
   label,
   icon: Icon,
   value,
   onChange,
   yesCount,
   totalCount,
+  isOpen = false,
+  onToggle,
+  onClose,
+  alignRight = false,
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (ref.current && !ref.current.contains(e.target)) {
-        setIsOpen(false);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen]);
-
   const isActive = value === 'Yes' || value === 'No';
 
   return (
-    <div className={`filter-control-wrapper ${isActive ? 'is-active' : ''}`} ref={ref}>
+    <div
+      className={`filter-control-wrapper ${isActive ? 'is-active' : ''} ${isOpen ? 'is-open' : ''}`}
+      id={`filter-${id}`}
+    >
       <button
         type="button"
-        className={`filter-control-btn ${isActive ? 'is-active' : ''}`}
-        onClick={() => setIsOpen(prev => !prev)}
+        className={`filter-control-btn ${isActive ? 'is-active' : ''} ${isOpen ? 'is-open' : ''}`}
+        onClick={onToggle}
         title={`Filter by ${label}`}
+        aria-expanded={isOpen}
       >
         <span className="filter-control-icon">
           <Icon size={13} strokeWidth={2.2} />
@@ -324,6 +348,19 @@ function ChannelFilterPopover({
         <span className="filter-control-text">
           {value === 'Yes' ? `Has ${label}` : value === 'No' ? `No ${label}` : label}
         </span>
+        {isActive && (
+          <span
+            role="button"
+            className="filter-quick-clear-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange('');
+            }}
+            title={`Clear ${label} filter`}
+          >
+            <X size={10} strokeWidth={2.6} />
+          </span>
+        )}
         <ChevronDown 
           size={12} 
           strokeWidth={2.2} 
@@ -332,7 +369,10 @@ function ChannelFilterPopover({
       </button>
 
       {isOpen && (
-        <div className="filter-popover-menu compact-channel-menu" onClick={(e) => e.stopPropagation()}>
+        <div
+          className={`filter-popover-menu compact-channel-menu ${alignRight ? 'align-right' : ''}`}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="filter-popover-header">
             <div className="filter-popover-title">
               <Icon size={12} strokeWidth={2.2} />
@@ -342,7 +382,7 @@ function ChannelFilterPopover({
               <button 
                 type="button" 
                 className="popover-clear-btn" 
-                onClick={() => { onChange(''); setIsOpen(false); }}
+                onClick={() => { onChange(''); onClose?.(); }}
               >
                 Reset
               </button>
@@ -353,7 +393,7 @@ function ChannelFilterPopover({
             <button
               type="button"
               className={`filter-popover-item ${!value ? 'is-selected' : ''}`}
-              onClick={() => { onChange(''); setIsOpen(false); }}
+              onClick={() => { onChange(''); onClose?.(); }}
             >
               <div className="item-main">
                 <span className="item-label">All (Any)</span>
@@ -364,7 +404,7 @@ function ChannelFilterPopover({
             <button
               type="button"
               className={`filter-popover-item ${value === 'Yes' ? 'is-selected' : ''}`}
-              onClick={() => { onChange('Yes'); setIsOpen(false); }}
+              onClick={() => { onChange('Yes'); onClose?.(); }}
             >
               <div className="item-main">
                 <span className="status-dot dot-green" />
@@ -381,7 +421,7 @@ function ChannelFilterPopover({
             <button
               type="button"
               className={`filter-popover-item ${value === 'No' ? 'is-selected' : ''}`}
-              onClick={() => { onChange('No'); setIsOpen(false); }}
+              onClick={() => { onChange('No'); onClose?.(); }}
             >
               <div className="item-main">
                 <span className="status-dot dot-muted" />
@@ -426,6 +466,37 @@ export default function PipelineToolbar() {
   } = usePipeline();
 
   const [batchUpdating, setBatchUpdating] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState(null);
+  const toolbarRef = useRef(null);
+
+  const toggleDropdown = (id) => {
+    setOpenDropdown(prev => prev === id ? null : id);
+  };
+
+  const closeDropdown = () => {
+    setOpenDropdown(null);
+  };
+
+  // Close dropdown on outside click or Escape key
+  useEffect(() => {
+    if (!openDropdown) return;
+    const handleGlobalMouseDown = (e) => {
+      if (toolbarRef.current && !toolbarRef.current.contains(e.target)) {
+        setOpenDropdown(null);
+      }
+    };
+    const handleGlobalKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handleGlobalMouseDown);
+    document.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleGlobalMouseDown);
+      document.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [openDropdown]);
 
   // Batch CRM Status Update
   const handleBatchStatus = async (newStatus) => {
@@ -503,6 +574,8 @@ export default function PipelineToolbar() {
         const total = stats?.total || 0;
         const withCount = stats?.with_employee_count || 0;
         count = Math.max(0, total - withCount);
+      } else if (b.id === 'has_count') {
+        count = stats?.with_employee_count ?? 0;
       } else if (stats?.by_employee_range) {
         count = stats.by_employee_range[b.id] ?? 0;
       }
@@ -533,20 +606,22 @@ export default function PipelineToolbar() {
     }
 
     if (filters.city) {
+      const parts = filters.city.split(',').map(s => s.trim()).filter(Boolean);
       chips.push({
         key: 'city',
         label: 'Location',
-        displayValue: filters.city,
+        displayValue: parts.length > 2 ? `${parts.length} locations` : parts.join(', '),
         icon: <MapPin size={11} strokeWidth={2.2} />,
         onRemove: () => updateFilter('city', ''),
       });
     }
 
     if (filters.industry) {
+      const parts = filters.industry.split(',').map(s => s.trim()).filter(Boolean);
       chips.push({
         key: 'industry',
         label: 'Industry',
-        displayValue: filters.industry,
+        displayValue: parts.length > 2 ? `${parts.length} industries` : parts.join(', '),
         icon: <Building2 size={11} strokeWidth={2.2} />,
         onRemove: () => updateFilter('industry', ''),
       });
@@ -564,10 +639,11 @@ export default function PipelineToolbar() {
     }
 
     if (filters.status) {
+      const parts = filters.status.split(',').map(s => s.trim().replace(/_/g, ' ')).filter(Boolean);
       chips.push({
         key: 'status',
         label: 'Status',
-        displayValue: filters.status.replace(/_/g, ' '),
+        displayValue: parts.length > 2 ? `${parts.length} statuses` : parts.join(', '),
         icon: <Tag size={11} strokeWidth={2.2} />,
         onRemove: () => updateFilter('status', ''),
       });
@@ -617,7 +693,7 @@ export default function PipelineToolbar() {
   }, [search, filters, setSearch, updateFilter]);
 
   return (
-    <div className="pipeline-control-panel">
+    <div className="pipeline-control-panel" ref={toolbarRef}>
       {/* ── Tier 1: Search, Selection & Primary Action Bar ── */}
       <div className="pipeline-top-bar">
         <div className="search-and-selection" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -817,8 +893,12 @@ export default function PipelineToolbar() {
             value={filters.city}
             onChange={(val) => updateFilter('city', val)}
             options={cityOptions}
+            isMulti={true}
             searchable={cityOptions.length > 5}
             searchPlaceholder="Search locations..."
+            isOpen={openDropdown === 'city'}
+            onToggle={() => toggleDropdown('city')}
+            onClose={closeDropdown}
           />
 
           {/* 2. Industry */}
@@ -829,8 +909,12 @@ export default function PipelineToolbar() {
             value={filters.industry}
             onChange={(val) => updateFilter('industry', val)}
             options={industryOptions}
+            isMulti={true}
             searchable={industryOptions.length > 5}
             searchPlaceholder="Search industries..."
+            isOpen={openDropdown === 'industry'}
+            onToggle={() => toggleDropdown('industry')}
+            onClose={closeDropdown}
           />
 
           {/* 3. Company Size (Multiple Choice) */}
@@ -842,58 +926,83 @@ export default function PipelineToolbar() {
             onChange={(val) => updateFilter('employee_count', val)}
             options={employeeOptions}
             isMulti={true}
+            isOpen={openDropdown === 'employees'}
+            onToggle={() => toggleDropdown('employees')}
+            onClose={closeDropdown}
           />
 
-          {/* 4. Status */}
+          {/* 4. Lead Status */}
           <FilterPopover
             id="status"
-            label="Status"
+            label="Lead Status"
             icon={Tag}
             value={filters.status}
             onChange={(val) => updateFilter('status', val)}
             options={statusOptions}
+            isMulti={true}
+            isOpen={openDropdown === 'status'}
+            onToggle={() => toggleDropdown('status')}
+            onClose={closeDropdown}
           />
 
           <div className="filter-mini-divider" />
 
           {/* 5. Website Channel */}
           <ChannelFilterPopover
+            id="has_website"
             label="Website"
             icon={Globe}
             value={filters.has_website}
             onChange={(val) => updateFilter('has_website', val)}
             yesCount={stats?.with_website}
             totalCount={stats?.total}
+            isOpen={openDropdown === 'has_website'}
+            onToggle={() => toggleDropdown('has_website')}
+            onClose={closeDropdown}
           />
 
           {/* 6. Email Channel */}
           <ChannelFilterPopover
+            id="has_email"
             label="Email"
             icon={Mail}
             value={filters.has_email}
             onChange={(val) => updateFilter('has_email', val)}
             yesCount={stats?.with_email}
             totalCount={stats?.total}
+            isOpen={openDropdown === 'has_email'}
+            onToggle={() => toggleDropdown('has_email')}
+            onClose={closeDropdown}
           />
 
           {/* 7. Decision Maker */}
           <ChannelFilterPopover
+            id="has_dm"
             label="Leader"
             icon={UserCheck}
             value={filters.has_dm}
             onChange={(val) => updateFilter('has_dm', val)}
             yesCount={stats?.with_dm}
             totalCount={stats?.total}
+            isOpen={openDropdown === 'has_dm'}
+            onToggle={() => toggleDropdown('has_dm')}
+            onClose={closeDropdown}
+            alignRight={true}
           />
 
           {/* 8. Phone Channel */}
           <ChannelFilterPopover
+            id="has_phone"
             label="Phone"
             icon={Phone}
             value={filters.has_phone}
             onChange={(val) => updateFilter('has_phone', val)}
             yesCount={stats?.with_phone}
             totalCount={stats?.total}
+            isOpen={openDropdown === 'has_phone'}
+            onToggle={() => toggleDropdown('has_phone')}
+            onClose={closeDropdown}
+            alignRight={true}
           />
         </div>
 
@@ -916,7 +1025,7 @@ export default function PipelineToolbar() {
         <div className="active-filters-tray">
           <div className="active-filters-label">
             <SlidersHorizontal size={12} strokeWidth={2.2} />
-            <span>Applied Filters:</span>
+            <span>Applied Filters ({activeChips.length}):</span>
           </div>
 
           <div className="active-chips-scroll">
@@ -924,7 +1033,7 @@ export default function PipelineToolbar() {
               <span key={chip.key} className="active-filter-chip">
                 <span className="chip-icon">{chip.icon}</span>
                 <span className="chip-key">{chip.label}:</span>
-                <span className="chip-val" title={chip.value}>{chip.displayValue}</span>
+                <span className="chip-val" title={chip.displayValue}>{chip.displayValue}</span>
                 <button
                   type="button"
                   className="chip-remove-btn"
@@ -943,7 +1052,8 @@ export default function PipelineToolbar() {
             onClick={resetFilters}
             title="Clear all filters"
           >
-            <span>Clear all ({activeFilterCount})</span>
+            <RotateCcw size={11} strokeWidth={2.4} />
+            <span>Clear All</span>
           </button>
         </div>
       )}
