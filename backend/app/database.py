@@ -1060,16 +1060,37 @@ def query_records(
         params["q"] = term
 
     if city and city.strip():
-        conditions.append("LOWER(City) = LOWER(:city)")
-        params["city"] = city.strip()
+        city_tokens = [c.strip().lower() for c in str(city).split(",") if c.strip()]
+        if len(city_tokens) == 1:
+            conditions.append("LOWER(City) = LOWER(:city)")
+            params["city"] = city_tokens[0]
+        elif len(city_tokens) > 1:
+            city_params = [f":city_{i}" for i in range(len(city_tokens))]
+            conditions.append(f"LOWER(City) IN ({', '.join(city_params)})")
+            for i, c in enumerate(city_tokens):
+                params[f"city_{i}"] = c
 
     if industry and industry.strip():
-        conditions.append("LOWER(Primary_Industry) LIKE LOWER(:industry)")
-        params["industry"] = f"%{industry.strip()}%"
+        ind_tokens = [ind.strip() for ind in str(industry).split(",") if ind.strip()]
+        if len(ind_tokens) == 1:
+            conditions.append("LOWER(Primary_Industry) LIKE LOWER(:industry)")
+            params["industry"] = f"%{ind_tokens[0]}%"
+        elif len(ind_tokens) > 1:
+            ind_clauses = [f"LOWER(Primary_Industry) LIKE LOWER(:ind_{i})" for i in range(len(ind_tokens))]
+            conditions.append(f"({' OR '.join(ind_clauses)})")
+            for i, ind in enumerate(ind_tokens):
+                params[f"ind_{i}"] = f"%{ind}%"
 
     if status and status.strip():
-        conditions.append("LOWER(Lead_Status) = LOWER(:status)")
-        params["status"] = status.strip()
+        st_tokens = [s.strip().lower() for s in str(status).split(",") if s.strip()]
+        if len(st_tokens) == 1:
+            conditions.append("LOWER(Lead_Status) = LOWER(:status)")
+            params["status"] = st_tokens[0]
+        elif len(st_tokens) > 1:
+            st_params = [f":st_{i}" for i in range(len(st_tokens))]
+            conditions.append(f"LOWER(Lead_Status) IN ({', '.join(st_params)})")
+            for i, s in enumerate(st_tokens):
+                params[f"st_{i}"] = s
 
     if has_website and has_website.strip():
         if has_website.strip().lower() in ("yes", "true", "1"):

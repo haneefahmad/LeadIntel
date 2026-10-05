@@ -2,7 +2,25 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { usePipeline } from '../../context/PipelineContext';
 import { api } from '../../api/client';
-import { Layers, CheckSquare, Tag, Users } from 'lucide-react';
+import { 
+  MapPin, 
+  Building2, 
+  Users, 
+  Tag, 
+  Globe, 
+  Mail, 
+  UserCheck, 
+  Phone, 
+  Filter, 
+  X, 
+  ChevronDown, 
+  Search, 
+  Check, 
+  RotateCcw, 
+  SlidersHorizontal,
+  Sparkles,
+  Layers
+} from 'lucide-react';
 
 const EMPLOYEE_BRACKETS = [
   { id: '1-10', label: '1 – 10 employees', short: '1–10' },
@@ -15,11 +33,38 @@ const EMPLOYEE_BRACKETS = [
   { id: 'no_count', label: 'Unspecified / Missing', short: 'Missing' },
 ];
 
-function CompanySizeMultiSelect({ value, onChange, stats }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef(null);
+const STATUS_OPTIONS = [
+  { id: 'New', label: 'New', dotColor: '#3b82f6' },
+  { id: 'Contacted', label: 'Contacted', dotColor: '#f59e0b' },
+  { id: 'In_Conversation', label: 'In Conversation', dotColor: '#8b5cf6' },
+  { id: 'Proposal_Sent', label: 'Proposal Sent', dotColor: '#ec4899' },
+  { id: 'Qualified', label: 'Qualified', dotColor: '#10b981' },
+  { id: 'Meeting_Scheduled', label: 'Meeting Scheduled', dotColor: '#06b6d4' },
+  { id: 'Won', label: 'Won', dotColor: '#22c55e' },
+  { id: 'Lost', label: 'Lost', dotColor: '#ef4444' },
+  { id: 'Disqualified', label: 'Disqualified', dotColor: '#64748b' },
+];
 
-  const selected = useMemo(() => {
+/**
+ * Enterprise Filter Popover Component
+ * Supports search, live item counts, single & multi-choice, and keyboard/click outside dismissal.
+ */
+function FilterPopover({
+  id,
+  label,
+  icon: Icon,
+  value,
+  onChange,
+  options = [],
+  isMulti = false,
+  searchable = false,
+  searchPlaceholder = 'Search...',
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const popoverRef = useRef(null);
+
+  const selectedValues = useMemo(() => {
     if (!value) return [];
     if (Array.isArray(value)) return value;
     return String(value).split(',').map(s => s.trim()).filter(Boolean);
@@ -27,7 +72,7 @@ function CompanySizeMultiSelect({ value, onChange, stats }) {
 
   useEffect(() => {
     function handleClickOutside(e) {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
         setIsOpen(false);
       }
     }
@@ -39,129 +84,317 @@ function CompanySizeMultiSelect({ value, onChange, stats }) {
     };
   }, [isOpen]);
 
-  const toggleBracket = (id) => {
-    const next = selected.includes(id)
-      ? selected.filter(x => x !== id)
-      : [...selected, id];
-    onChange(next.join(','));
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchQuery('');
+    }
+  }, [isOpen]);
+
+  const filteredOptions = useMemo(() => {
+    if (!searchQuery.trim()) return options;
+    const q = searchQuery.toLowerCase().trim();
+    return options.filter(opt => (opt.label || opt.id || '').toLowerCase().includes(q));
+  }, [options, searchQuery]);
+
+  const handleSelectOption = (optId) => {
+    if (isMulti) {
+      const next = selectedValues.includes(optId)
+        ? selectedValues.filter(x => x !== optId)
+        : [...selectedValues, optId];
+      onChange(next.join(','));
+    } else {
+      if (selectedValues.includes(optId)) {
+        onChange('');
+      } else {
+        onChange(optId);
+      }
+      setIsOpen(false);
+    }
   };
 
-  const selectAll = () => {
-    const allIds = EMPLOYEE_BRACKETS.map(b => b.id);
-    onChange(allIds.join(','));
-  };
-
-  const clearAll = () => {
+  const handleClear = (e) => {
+    e?.stopPropagation();
     onChange('');
+    setIsOpen(false);
   };
 
-  const getLabel = () => {
-    if (selected.length === 0) return 'All Company Sizes';
-    if (selected.length === 1) {
-      const found = EMPLOYEE_BRACKETS.find(b => b.id === selected[0]);
-      return found ? found.label : selected[0];
+  const getButtonText = () => {
+    if (selectedValues.length === 0) return label;
+    if (selectedValues.length === 1) {
+      const found = options.find(o => o.id === selectedValues[0]);
+      return found ? found.label : selectedValues[0];
     }
-    if (selected.length === 2) {
-      const s1 = EMPLOYEE_BRACKETS.find(b => b.id === selected[0])?.short || selected[0];
-      const s2 = EMPLOYEE_BRACKETS.find(b => b.id === selected[1])?.short || selected[1];
-      return `${s1}, ${s2}`;
+    if (selectedValues.length === 2) {
+      const o1 = options.find(o => o.id === selectedValues[0])?.short || selectedValues[0];
+      const o2 = options.find(o => o.id === selectedValues[1])?.short || selectedValues[1];
+      return `${o1}, ${o2}`;
     }
-    return `${selected.length} Sizes Selected`;
+    return `${selectedValues.length} ${label}`;
   };
+
+  const isFiltered = selectedValues.length > 0;
 
   return (
-    <div className={`filter-pill-item ${selected.length > 0 ? 'is-active' : ''}`} ref={containerRef} id="pillFilterEmployees">
-      <span className="pill-icon">👥</span>
+    <div className={`filter-control-wrapper ${isFiltered ? 'is-active' : ''}`} ref={popoverRef} id={`filter-${id}`}>
       <button
         type="button"
-        className="filter-pill-btn"
+        className={`filter-control-btn ${isFiltered ? 'is-active' : ''}`}
         onClick={() => setIsOpen(prev => !prev)}
-        title="Filter by company size (Multiple Choice Selection)"
+        aria-expanded={isOpen}
       >
-        <span>{getLabel()}</span>
-        {selected.length > 0 && (
-          <span className="filter-pill-badge">{selected.length}</span>
+        <span className="filter-control-icon">
+          <Icon size={13} strokeWidth={2.2} />
+        </span>
+        <span className="filter-control-text" title={getButtonText()}>
+          {getButtonText()}
+        </span>
+        {isFiltered && isMulti && selectedValues.length > 1 && (
+          <span className="filter-control-count-pill">{selectedValues.length}</span>
         )}
-        <svg 
-          width="10" 
-          height="10" 
-          viewBox="0 0 24 24" 
-          fill="none" 
-          stroke="currentColor" 
-          strokeWidth="2.5" 
-          style={{ 
-            opacity: 0.7, 
-            transform: isOpen ? 'rotate(180deg)' : 'none', 
-            transition: 'transform 0.15s ease' 
-          }}
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <ChevronDown 
+          size={12} 
+          strokeWidth={2.2} 
+          className={`filter-chevron ${isOpen ? 'is-open' : ''}`} 
+        />
       </button>
 
       {isOpen && (
-        <div className="multi-select-popover" onClick={(e) => e.stopPropagation()}>
-          <div className="multi-select-header">
-            <span className="multi-select-title">
-              Company Size ({selected.length}/{EMPLOYEE_BRACKETS.length})
-            </span>
-            {selected.length > 0 && (
-              <button
-                type="button"
-                onClick={clearAll}
-                style={{ fontSize: '0.72rem', color: '#818cf8', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}
-              >
-                Clear
+        <div className="filter-popover-menu" onClick={(e) => e.stopPropagation()}>
+          {/* Popover Header */}
+          <div className="filter-popover-header">
+            <div className="filter-popover-title">
+              <Icon size={12} strokeWidth={2.2} />
+              <span>{label}</span>
+              {isFiltered && (
+                <span className="popover-selection-indicator">({selectedValues.length})</span>
+              )}
+            </div>
+            {isFiltered && (
+              <button type="button" className="popover-clear-btn" onClick={handleClear}>
+                Reset
               </button>
             )}
           </div>
 
-          <div className="multi-select-options">
-            {EMPLOYEE_BRACKETS.map(b => {
-              const isChecked = selected.includes(b.id);
-              let count = null;
-              if (b.id === 'no_count') {
-                const total = stats?.total || 0;
-                const withCount = stats?.with_employee_count || 0;
-                count = Math.max(0, total - withCount);
-              } else if (stats?.by_employee_range) {
-                count = stats.by_employee_range[b.id] ?? 0;
-              }
+          {/* Search Box */}
+          {searchable && (
+            <div className="filter-popover-search">
+              <Search size={12} strokeWidth={2.2} className="popover-search-icon" />
+              <input
+                type="text"
+                placeholder={searchPlaceholder}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoFocus
+              />
+              {searchQuery && (
+                <button type="button" className="popover-search-clear" onClick={() => setSearchQuery('')}>
+                  <X size={10} strokeWidth={2.5} />
+                </button>
+              )}
+            </div>
+          )}
 
-              return (
-                <label key={b.id} className={`multi-select-row ${isChecked ? 'is-checked' : ''}`}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => toggleBracket(b.id)}
-                      style={{ accentColor: '#6366f1', cursor: 'pointer', width: 14, height: 14 }}
-                    />
-                    <span>{b.label}</span>
-                  </div>
-                  {count != null && (
-                    <span className="multi-select-count">{count.toLocaleString()}</span>
-                  )}
-                </label>
-              );
-            })}
+          {/* Options List */}
+          <div className="filter-popover-list">
+            {!isMulti && (
+              <button
+                type="button"
+                className={`filter-popover-item ${!isFiltered ? 'is-selected' : ''}`}
+                onClick={() => { onChange(''); setIsOpen(false); }}
+              >
+                <div className="item-main">
+                  <span className="item-label">All {label}</span>
+                </div>
+                {!isFiltered && <Check size={12} strokeWidth={2.5} className="item-check-icon" />}
+              </button>
+            )}
+
+            {filteredOptions.length === 0 ? (
+              <div className="filter-popover-empty">No matching options found</div>
+            ) : (
+              filteredOptions.map(opt => {
+                const isSelected = selectedValues.includes(opt.id);
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`filter-popover-item ${isSelected ? 'is-selected' : ''}`}
+                    onClick={() => handleSelectOption(opt.id)}
+                  >
+                    <div className="item-main">
+                      {isMulti ? (
+                        <span className={`custom-checkbox ${isSelected ? 'is-checked' : ''}`}>
+                          {isSelected && <Check size={10} strokeWidth={3} />}
+                        </span>
+                      ) : (
+                        opt.dotColor && (
+                          <span className="status-dot" style={{ backgroundColor: opt.dotColor }} />
+                        )
+                      )}
+                      <span className="item-label">{opt.label}</span>
+                    </div>
+
+                    <div className="item-meta">
+                      {opt.count != null && (
+                        <span className="item-count-badge">
+                          {Number(opt.count).toLocaleString()}
+                        </span>
+                      )}
+                      {!isMulti && isSelected && (
+                        <Check size={12} strokeWidth={2.5} className="item-check-icon" />
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
 
-          <div className="multi-select-footer">
+          {/* Footer for multi-select */}
+          {isMulti && (
+            <div className="filter-popover-footer">
+              <button
+                type="button"
+                className="popover-footer-action"
+                onClick={() => {
+                  const allIds = options.map(o => o.id);
+                  onChange(allIds.join(','));
+                }}
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                className="btn-apply-popover"
+                onClick={() => setIsOpen(false)}
+              >
+                Apply
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Compact Channel / Data-Quality Filter Popover
+ * For Website, Email, Decision Maker, Phone.
+ */
+function ChannelFilterPopover({
+  label,
+  icon: Icon,
+  value,
+  onChange,
+  yesCount,
+  totalCount,
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const isActive = value === 'Yes' || value === 'No';
+
+  return (
+    <div className={`filter-control-wrapper ${isActive ? 'is-active' : ''}`} ref={ref}>
+      <button
+        type="button"
+        className={`filter-control-btn ${isActive ? 'is-active' : ''}`}
+        onClick={() => setIsOpen(prev => !prev)}
+        title={`Filter by ${label}`}
+      >
+        <span className="filter-control-icon">
+          <Icon size={13} strokeWidth={2.2} />
+        </span>
+        <span className="filter-control-text">
+          {value === 'Yes' ? `Has ${label}` : value === 'No' ? `No ${label}` : label}
+        </span>
+        <ChevronDown 
+          size={12} 
+          strokeWidth={2.2} 
+          className={`filter-chevron ${isOpen ? 'is-open' : ''}`} 
+        />
+      </button>
+
+      {isOpen && (
+        <div className="filter-popover-menu compact-channel-menu" onClick={(e) => e.stopPropagation()}>
+          <div className="filter-popover-header">
+            <div className="filter-popover-title">
+              <Icon size={12} strokeWidth={2.2} />
+              <span>{label}</span>
+            </div>
+            {isActive && (
+              <button 
+                type="button" 
+                className="popover-clear-btn" 
+                onClick={() => { onChange(''); setIsOpen(false); }}
+              >
+                Reset
+              </button>
+            )}
+          </div>
+
+          <div className="filter-popover-list">
             <button
               type="button"
-              onClick={selectAll}
-              style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer' }}
+              className={`filter-popover-item ${!value ? 'is-selected' : ''}`}
+              onClick={() => { onChange(''); setIsOpen(false); }}
             >
-              Select All
+              <div className="item-main">
+                <span className="item-label">All (Any)</span>
+              </div>
+              {!value && <Check size={12} strokeWidth={2.5} className="item-check-icon" />}
             </button>
+
             <button
               type="button"
-              onClick={() => setIsOpen(false)}
-              className="action-btn btn-primary"
-              style={{ fontSize: '0.72rem', padding: '2px 10px', height: 'auto', minHeight: 24, borderRadius: 4, cursor: 'pointer' }}
+              className={`filter-popover-item ${value === 'Yes' ? 'is-selected' : ''}`}
+              onClick={() => { onChange('Yes'); setIsOpen(false); }}
             >
-              Done
+              <div className="item-main">
+                <span className="status-dot dot-green" />
+                <span className="item-label">Has {label}</span>
+              </div>
+              <div className="item-meta">
+                {yesCount != null && (
+                  <span className="item-count-badge">{(yesCount).toLocaleString()}</span>
+                )}
+                {value === 'Yes' && <Check size={12} strokeWidth={2.5} className="item-check-icon" />}
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className={`filter-popover-item ${value === 'No' ? 'is-selected' : ''}`}
+              onClick={() => { onChange('No'); setIsOpen(false); }}
+            >
+              <div className="item-main">
+                <span className="status-dot dot-muted" />
+                <span className="item-label">No {label}</span>
+              </div>
+              <div className="item-meta">
+                {totalCount != null && yesCount != null && (
+                  <span className="item-count-badge">
+                    {Math.max(0, totalCount - yesCount).toLocaleString()}
+                  </span>
+                )}
+                {value === 'No' && <Check size={12} strokeWidth={2.5} className="item-check-icon" />}
+              </div>
             </button>
           </div>
         </div>
@@ -171,7 +404,16 @@ function CompanySizeMultiSelect({ value, onChange, stats }) {
 }
 
 export default function PipelineToolbar() {
-  const { stats, openModal, selectedRecordIds, setSelectedRecordIds, activeSheet, showToast, reloadStats } = useApp();
+  const { 
+    stats, 
+    openModal, 
+    selectedRecordIds, 
+    setSelectedRecordIds, 
+    activeSheet, 
+    showToast, 
+    reloadStats 
+  } = useApp();
+
   const { 
     search, 
     setSearch, 
@@ -229,13 +471,150 @@ export default function PipelineToolbar() {
     }
   };
 
-  const cities = Object.entries(stats?.by_city || {})
-    .filter(([c]) => c && c !== 'Unspecified')
-    .sort((a, b) => b[1] - a[1]);
+  // City options from stats
+  const cityOptions = useMemo(() => {
+    const list = Object.entries(stats?.by_city || {})
+      .filter(([c]) => c && c !== 'Unspecified')
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, count]) => ({ id: c, label: c, count }));
+    if (stats?.by_city?.['Unspecified']) {
+      list.push({ id: 'Unspecified', label: 'Unspecified', count: stats.by_city['Unspecified'] });
+    }
+    return list;
+  }, [stats?.by_city]);
 
-  const industries = Object.entries(stats?.by_industry || {})
-    .filter(([ind]) => ind && ind !== 'General')
-    .sort((a, b) => b[1] - a[1]);
+  // Industry options from stats
+  const industryOptions = useMemo(() => {
+    const list = Object.entries(stats?.by_industry || {})
+      .filter(([ind]) => ind && ind !== 'General')
+      .sort((a, b) => b[1] - a[1])
+      .map(([ind, count]) => ({ id: ind, label: ind, count }));
+    if (stats?.by_industry?.['General']) {
+      list.push({ id: 'General', label: 'General / Other', count: stats.by_industry['General'] });
+    }
+    return list;
+  }, [stats?.by_industry]);
+
+  // Company size options with live counts
+  const employeeOptions = useMemo(() => {
+    return EMPLOYEE_BRACKETS.map(b => {
+      let count = null;
+      if (b.id === 'no_count') {
+        const total = stats?.total || 0;
+        const withCount = stats?.with_employee_count || 0;
+        count = Math.max(0, total - withCount);
+      } else if (stats?.by_employee_range) {
+        count = stats.by_employee_range[b.id] ?? 0;
+      }
+      return { ...b, count };
+    });
+  }, [stats?.by_employee_range, stats?.total, stats?.with_employee_count]);
+
+  // Status options with counts
+  const statusOptions = useMemo(() => {
+    return STATUS_OPTIONS.map(s => {
+      const count = stats?.by_status?.[s.id] ?? stats?.by_status?.[s.label];
+      return { ...s, count };
+    });
+  }, [stats?.by_status]);
+
+  // Compute Active Filter Chips for the dedicated tray
+  const activeChips = useMemo(() => {
+    const chips = [];
+
+    if (search.trim()) {
+      chips.push({
+        key: 'search',
+        label: 'Search',
+        displayValue: `"${search.trim()}"`,
+        icon: <Search size={11} strokeWidth={2.2} />,
+        onRemove: () => setSearch(''),
+      });
+    }
+
+    if (filters.city) {
+      chips.push({
+        key: 'city',
+        label: 'Location',
+        displayValue: filters.city,
+        icon: <MapPin size={11} strokeWidth={2.2} />,
+        onRemove: () => updateFilter('city', ''),
+      });
+    }
+
+    if (filters.industry) {
+      chips.push({
+        key: 'industry',
+        label: 'Industry',
+        displayValue: filters.industry,
+        icon: <Building2 size={11} strokeWidth={2.2} />,
+        onRemove: () => updateFilter('industry', ''),
+      });
+    }
+
+    if (filters.employee_count) {
+      const parts = filters.employee_count.split(',').map(s => s.trim()).filter(Boolean);
+      chips.push({
+        key: 'employee_count',
+        label: 'Size',
+        displayValue: parts.length > 2 ? `${parts.length} sizes` : parts.join(', '),
+        icon: <Users size={11} strokeWidth={2.2} />,
+        onRemove: () => updateFilter('employee_count', ''),
+      });
+    }
+
+    if (filters.status) {
+      chips.push({
+        key: 'status',
+        label: 'Status',
+        displayValue: filters.status.replace(/_/g, ' '),
+        icon: <Tag size={11} strokeWidth={2.2} />,
+        onRemove: () => updateFilter('status', ''),
+      });
+    }
+
+    if (filters.has_website) {
+      chips.push({
+        key: 'has_website',
+        label: 'Website',
+        displayValue: filters.has_website === 'Yes' ? 'Has Website' : 'No Website',
+        icon: <Globe size={11} strokeWidth={2.2} />,
+        onRemove: () => updateFilter('has_website', ''),
+      });
+    }
+
+    if (filters.has_email) {
+      chips.push({
+        key: 'has_email',
+        label: 'Email',
+        displayValue: filters.has_email === 'Yes' ? 'Has Email' : 'No Email',
+        icon: <Mail size={11} strokeWidth={2.2} />,
+        onRemove: () => updateFilter('has_email', ''),
+      });
+    }
+
+    if (filters.has_dm) {
+      chips.push({
+        key: 'has_dm',
+        label: 'Leader',
+        displayValue: filters.has_dm === 'Yes' ? 'Has Decision Maker' : 'No Decision Maker',
+        icon: <UserCheck size={11} strokeWidth={2.2} />,
+        onRemove: () => updateFilter('has_dm', ''),
+      });
+    }
+
+    if (filters.has_phone) {
+      chips.push({
+        key: 'has_phone',
+        label: 'Phone',
+        displayValue: filters.has_phone === 'Yes' ? 'Has Phone' : 'No Phone',
+        icon: <Phone size={11} strokeWidth={2.2} />,
+        onRemove: () => updateFilter('has_phone', ''),
+      });
+    }
+
+    return chips;
+  }, [search, filters, setSearch, updateFilter]);
 
   return (
     <div className="pipeline-control-panel">
@@ -315,16 +694,18 @@ export default function PipelineToolbar() {
                 <option value="Identified">1. Identified</option>
                 <option value="Contacted">2. Contacted</option>
                 <option value="Qualified">3. Qualified</option>
-                <option value="Proposal">4. Proposal</option>
-                <option value="Negotiation">5. Negotiation</option>
-                <option value="Closed_Won">6. Closed Won</option>
+                <option value="Demo_Scheduled">4. Demo</option>
+                <option value="Proposal">5. Proposal</option>
+                <option value="Negotiation">6. Negotiation</option>
+                <option value="Closed_Won">7. Closed Won</option>
+                <option value="Closed_Lost">8. Closed Lost</option>
               </select>
 
               <button
                 type="button"
-                className="selection-pill-clear"
                 onClick={() => setSelectedRecordIds([])}
-                title="Clear selection"
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.72rem' }}
+                title="Deselect all"
               >
                 Clear
               </button>
@@ -332,37 +713,18 @@ export default function PipelineToolbar() {
           )}
         </div>
 
-        {/* Right: Action Suite (Enrichment Engine & View Options) */}
-        <div className="pipeline-actions-group">
+        {/* Primary Action Buttons */}
+        <div className="table-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div className="enrichment-btn-group">
-            <button
-              type="button"
-              className="enrich-btn"
-              id="btnExtractCompany"
-              onClick={() => openModal('extractCompany')}
-              title="Extract single company firmographics & contacts via Apify or Apollo"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 21h18" />
-                <path d="M5 21V7l8-4v18" />
-                <path d="M19 21V11l-6-4" />
-                <path d="M9 9v.01" />
-                <path d="M9 12v.01" />
-                <path d="M9 15v.01" />
-                <path d="M9 18v.01" />
-              </svg>
-              <span>+ Extract Company</span>
-            </button>
-
             <button
               type="button"
               className="enrich-btn enrich-apollo-btn"
               id="btnEnrichApollo"
               onClick={() => openModal('enrich', 'apollo')}
-              title="Enrich verified emails, decision makers & firmographics via Apollo.io"
+              title="Enrich Decision Makers and B2B emails via Apollo.io"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
               </svg>
               <span>⚡ Enrich Apollo</span>
               {selectedRecordIds.length > 0 && (
@@ -429,161 +791,162 @@ export default function PipelineToolbar() {
         </div>
       </div>
 
-      {/* ── Tier 2: Dedicated Filter Bar ── */}
+      {/* ── Tier 2: Enhanced Executive Filter Bar ── */}
       <div className="pipeline-filter-bar">
         <div className="filter-bar-header">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-          </svg>
-          <span>Filters</span>
-        </div>
-
-        <div className="filter-pills-list">
-          {/* Location Filter Pill */}
-          <div className={`filter-pill-item ${filters.city ? 'is-active' : ''}`} id="pillFilterCity">
-            <span className="pill-icon">📍</span>
-            <select
-              id="filterCity"
-              className="filter-select"
-              value={filters.city}
-              onChange={(e) => updateFilter('city', e.target.value)}
-            >
-              <option value="">All Locations ({(stats?.total || 0).toLocaleString()})</option>
-              {cities.map(([c, count]) => (
-                <option key={c} value={c}>{c} ({count})</option>
-              ))}
-              {stats?.by_city?.['Unspecified'] && (
-                <option value="Unspecified">Unspecified ({stats.by_city['Unspecified']})</option>
-              )}
-            </select>
+          <div className="filter-bar-title-wrap">
+            <Filter size={13} strokeWidth={2.4} />
+            <span>Filters</span>
           </div>
-
-          {/* Industry Filter Pill */}
-          <div className={`filter-pill-item ${filters.industry ? 'is-active' : ''}`} id="pillFilterIndustry">
-            <span className="pill-icon">🏢</span>
-            <select
-              id="filterIndustry"
-              className="filter-select"
-              value={filters.industry}
-              onChange={(e) => updateFilter('industry', e.target.value)}
-            >
-              <option value="">All Industries ({(stats?.total || 0).toLocaleString()})</option>
-              {industries.map(([ind, count]) => (
-                <option key={ind} value={ind}>{ind} ({count})</option>
-              ))}
-              {stats?.by_industry?.['General'] && (
-                <option value="General">General ({stats.by_industry['General']})</option>
-              )}
-            </select>
-          </div>
-
-          {/* Company Size / Employee Count Multiple Choice Filter Pill */}
-          <CompanySizeMultiSelect
-            value={filters.employee_count}
-            onChange={(val) => updateFilter('employee_count', val)}
-            stats={stats}
-          />
-
-          {/* Status Filter Pill */}
-          <div className={`filter-pill-item ${filters.status ? 'is-active' : ''}`} id="pillFilterStatus">
-            <span className="pill-icon">🏷️</span>
-            <select
-              id="filterStatus"
-              className="filter-select"
-              value={filters.status}
-              onChange={(e) => updateFilter('status', e.target.value)}
-            >
-              <option value="">All Statuses</option>
-              <option value="New">New</option>
-              <option value="Contacted">Contacted</option>
-              <option value="In_Conversation">In Conversation</option>
-              <option value="Proposal_Sent">Proposal Sent</option>
-              <option value="Qualified">Qualified</option>
-              <option value="Meeting_Scheduled">Meeting Scheduled</option>
-              <option value="Won">Won</option>
-              <option value="Lost">Lost</option>
-              <option value="Disqualified">Disqualified</option>
-            </select>
-          </div>
-
-          {/* Website Filter Pill */}
-          <div className={`filter-pill-item ${filters.has_website ? 'is-active' : ''}`} id="pillFilterWebsite">
-            <span className="pill-icon">🌐</span>
-            <select
-              id="filterWebsite"
-              className="filter-select"
-              value={filters.has_website}
-              onChange={(e) => updateFilter('has_website', e.target.value)}
-            >
-              <option value="">All Websites</option>
-              <option value="Yes">Has Website ({(stats?.with_website || 0).toLocaleString()})</option>
-              <option value="No">No Website</option>
-            </select>
-          </div>
-
-          {/* Email Filter Pill */}
-          <div className={`filter-pill-item ${filters.has_email ? 'is-active' : ''}`} id="pillFilterEmail">
-            <span className="pill-icon">✉️</span>
-            <select
-              id="filterEmail"
-              className="filter-select"
-              value={filters.has_email}
-              onChange={(e) => updateFilter('has_email', e.target.value)}
-            >
-              <option value="">All Email</option>
-              <option value="Yes">Has Email ({(stats?.with_email || 0).toLocaleString()})</option>
-              <option value="No">No Email</option>
-            </select>
-          </div>
-
-          {/* Decision Maker Filter Pill */}
-          <div className={`filter-pill-item ${filters.has_dm ? 'is-active' : ''}`} id="pillFilterDm">
-            <span className="pill-icon">👤</span>
-            <select
-              id="filterDm"
-              className="filter-select"
-              value={filters.has_dm}
-              onChange={(e) => updateFilter('has_dm', e.target.value)}
-            >
-              <option value="">All Leadership</option>
-              <option value="Yes">Has Decision Maker ({(stats?.with_dm || 0).toLocaleString()})</option>
-              <option value="No">No Decision Maker</option>
-            </select>
-          </div>
-
-          {/* Phone Filter Pill */}
-          <div className={`filter-pill-item ${filters.has_phone ? 'is-active' : ''}`} id="pillFilterPhone">
-            <span className="pill-icon">📞</span>
-            <select
-              id="filterPhone"
-              className="filter-select"
-              value={filters.has_phone}
-              onChange={(e) => updateFilter('has_phone', e.target.value)}
-            >
-              <option value="">All Phones</option>
-              <option value="Yes">Has Phone ({(stats?.with_phone || 0).toLocaleString()})</option>
-              <option value="No">No Phone</option>
-            </select>
-          </div>
-
-          {/* Reset Filters Button */}
           {activeFilterCount > 0 && (
-            <button
-              type="button"
-              className="btn-reset-filters"
-              id="btnResetFilters"
-              onClick={resetFilters}
-              title="Reset all search filters"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-              <span id="resetFiltersText">Clear Filters ({activeFilterCount})</span>
-            </button>
+            <span className="filter-bar-count-badge">
+              {activeFilterCount}
+            </span>
           )}
         </div>
+
+        <div className="filter-divider" />
+
+        {/* Primary Filter Popovers */}
+        <div className="filter-controls-list">
+          {/* 1. Location (City) */}
+          <FilterPopover
+            id="city"
+            label="Location"
+            icon={MapPin}
+            value={filters.city}
+            onChange={(val) => updateFilter('city', val)}
+            options={cityOptions}
+            searchable={cityOptions.length > 5}
+            searchPlaceholder="Search locations..."
+          />
+
+          {/* 2. Industry */}
+          <FilterPopover
+            id="industry"
+            label="Industry"
+            icon={Building2}
+            value={filters.industry}
+            onChange={(val) => updateFilter('industry', val)}
+            options={industryOptions}
+            searchable={industryOptions.length > 5}
+            searchPlaceholder="Search industries..."
+          />
+
+          {/* 3. Company Size (Multiple Choice) */}
+          <FilterPopover
+            id="employees"
+            label="Company Size"
+            icon={Users}
+            value={filters.employee_count}
+            onChange={(val) => updateFilter('employee_count', val)}
+            options={employeeOptions}
+            isMulti={true}
+          />
+
+          {/* 4. Status */}
+          <FilterPopover
+            id="status"
+            label="Status"
+            icon={Tag}
+            value={filters.status}
+            onChange={(val) => updateFilter('status', val)}
+            options={statusOptions}
+          />
+
+          <div className="filter-mini-divider" />
+
+          {/* 5. Website Channel */}
+          <ChannelFilterPopover
+            label="Website"
+            icon={Globe}
+            value={filters.has_website}
+            onChange={(val) => updateFilter('has_website', val)}
+            yesCount={stats?.with_website}
+            totalCount={stats?.total}
+          />
+
+          {/* 6. Email Channel */}
+          <ChannelFilterPopover
+            label="Email"
+            icon={Mail}
+            value={filters.has_email}
+            onChange={(val) => updateFilter('has_email', val)}
+            yesCount={stats?.with_email}
+            totalCount={stats?.total}
+          />
+
+          {/* 7. Decision Maker */}
+          <ChannelFilterPopover
+            label="Leader"
+            icon={UserCheck}
+            value={filters.has_dm}
+            onChange={(val) => updateFilter('has_dm', val)}
+            yesCount={stats?.with_dm}
+            totalCount={stats?.total}
+          />
+
+          {/* 8. Phone Channel */}
+          <ChannelFilterPopover
+            label="Phone"
+            icon={Phone}
+            value={filters.has_phone}
+            onChange={(val) => updateFilter('has_phone', val)}
+            yesCount={stats?.with_phone}
+            totalCount={stats?.total}
+          />
+        </div>
+
+        {/* Global Reset Button in header row */}
+        {activeFilterCount > 0 && (
+          <button
+            type="button"
+            className="btn-reset-filters-subtle"
+            onClick={resetFilters}
+            title="Reset all filters"
+          >
+            <RotateCcw size={11} strokeWidth={2.4} />
+            <span>Reset</span>
+          </button>
+        )}
       </div>
+
+      {/* ── Tier 3: Active Filter Chips Tray (when filters applied) ── */}
+      {activeChips.length > 0 && (
+        <div className="active-filters-tray">
+          <div className="active-filters-label">
+            <SlidersHorizontal size={12} strokeWidth={2.2} />
+            <span>Applied Filters:</span>
+          </div>
+
+          <div className="active-chips-scroll">
+            {activeChips.map((chip) => (
+              <span key={chip.key} className="active-filter-chip">
+                <span className="chip-icon">{chip.icon}</span>
+                <span className="chip-key">{chip.label}:</span>
+                <span className="chip-val" title={chip.value}>{chip.displayValue}</span>
+                <button
+                  type="button"
+                  className="chip-remove-btn"
+                  onClick={chip.onRemove}
+                  title={`Remove ${chip.label} filter`}
+                >
+                  <X size={11} strokeWidth={2.5} />
+                </button>
+              </span>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            className="btn-clear-all-chips"
+            onClick={resetFilters}
+            title="Clear all filters"
+          >
+            <span>Clear all ({activeFilterCount})</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
