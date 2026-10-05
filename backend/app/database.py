@@ -970,6 +970,52 @@ def _get_employee_expr(eng: sa.Engine) -> str:
         return "CAST(REPLACE(REPLACE(Employee_Count, ',', ''), '+', '') AS INTEGER)"
 
 
+def _build_single_emp_condition(token: str, eng: sa.Engine, idx: int, params: dict[str, Any]) -> str | None:
+    """Builds a single employee range SQL condition with unique parameter binding."""
+    token_clean = token.strip().lower()
+    if not token_clean:
+        return None
+    emp_expr = _get_employee_expr(eng)
+
+    if token_clean in ("has", "yes", "true", "has_count", "1"):
+        return "(Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown')"
+    elif token_clean in ("no", "false", "no_count", "0", "none"):
+        return "(Employee_Count IS NULL OR TRIM(Employee_Count) = '' OR LOWER(Employee_Count) = 'unknown')"
+    elif "-" in token_clean:
+        parts = token_clean.split("-", 1)
+        try:
+            min_digits = re.sub(r"[^\d]", "", parts[0])
+            max_digits = re.sub(r"[^\d]", "", parts[1])
+            if min_digits and max_digits:
+                p_min = f"emp_min_{idx}"
+                p_max = f"emp_max_{idx}"
+                params[p_min] = int(min_digits)
+                params[p_max] = int(max_digits)
+                return (
+                    f"(Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND "
+                    f"LOWER(Employee_Count) != 'unknown' AND {emp_expr} BETWEEN :{p_min} AND :{p_max})"
+                )
+        except (ValueError, TypeError):
+            pass
+    elif "+" in token_clean or "plus" in token_clean or (token.endswith(" ") and token.strip().isdigit()):
+        digits = re.sub(r"[^\d]", "", token_clean)
+        if digits:
+            p_min = f"emp_min_{idx}"
+            params[p_min] = int(digits)
+            return (
+                f"(Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND "
+                f"LOWER(Employee_Count) != 'unknown' AND {emp_expr} >= :{p_min})"
+            )
+    elif token_clean.isdigit():
+        p_exact = f"emp_exact_{idx}"
+        params[p_exact] = int(token_clean)
+        return (
+            f"(Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND "
+            f"LOWER(Employee_Count) != 'unknown' AND {emp_expr} = :{p_exact})"
+        )
+    return None
+
+
 def query_records(
     q: str = "",
     city: str = "",
@@ -1061,45 +1107,23 @@ def query_records(
                 "(DM_Direct_Phone IS NULL OR TRIM(DM_Direct_Phone) = ''))"
             )
 
-    if employee_count and employee_count.strip():
-        ec = employee_count.strip().lower()
-        emp_expr = _get_employee_expr(eng)
+    if employee_count:
+        if isinstance(employee_count, list):
+            tokens = [str(t).strip() for t in employee_count if str(t).strip()]
+        else:
+            tokens = [str(t).strip() for t in str(employee_count).split(",") if str(t).strip()]
 
-        if ec in ("has", "yes", "true", "has_count", "1"):
-            conditions.append(
-                "Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown'"
-            )
-        elif ec in ("no", "false", "no_count", "0", "none"):
-            conditions.append(
-                "(Employee_Count IS NULL OR TRIM(Employee_Count) = '' OR LOWER(Employee_Count) = 'unknown')"
-            )
-        elif "-" in ec:
-            parts = ec.split("-", 1)
-            try:
-                min_digits = re.sub(r"[^\d]", "", parts[0])
-                max_digits = re.sub(r"[^\d]", "", parts[1])
-                if min_digits and max_digits:
-                    min_val = int(min_digits)
-                    max_val = int(max_digits)
-                    conditions.append(
-                        f"Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown' AND {emp_expr} BETWEEN :emp_min AND :emp_max"
-                    )
-                    params["emp_min"] = min_val
-                    params["emp_max"] = max_val
-            except (ValueError, TypeError):
-                pass
-        elif "+" in ec or "plus" in ec or (employee_count.endswith(" ") and employee_count.strip().isdigit()):
-            digits = re.sub(r"[^\d]", "", ec)
-            if digits:
-                conditions.append(
-                    f"Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown' AND {emp_expr} >= :emp_min"
-                )
-                params["emp_min"] = int(digits)
-        elif ec.isdigit():
-            conditions.append(
-                f"Employee_Count IS NOT NULL AND TRIM(Employee_Count) != '' AND LOWER(Employee_Count) != 'unknown' AND {emp_expr} = :emp_exact"
-            )
-            params["emp_exact"] = int(ec)
+        sub_conditions = []
+        for idx, token in enumerate(tokens):
+            cond = _build_single_emp_condition(token, eng, idx, params)
+            if cond:
+                sub_conditions.append(cond)
+
+        if sub_conditions:
+            if len(sub_conditions) == 1:
+                conditions.append(sub_conditions[0])
+            else:
+                conditions.append(f"({' OR '.join(sub_conditions)})")
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

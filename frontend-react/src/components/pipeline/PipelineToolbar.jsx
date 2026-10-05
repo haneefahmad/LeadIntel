@@ -1,8 +1,174 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { usePipeline } from '../../context/PipelineContext';
 import { api } from '../../api/client';
 import { Layers, CheckSquare, Tag, Users } from 'lucide-react';
+
+const EMPLOYEE_BRACKETS = [
+  { id: '1-10', label: '1 – 10 employees', short: '1–10' },
+  { id: '11-50', label: '11 – 50 employees', short: '11–50' },
+  { id: '51-200', label: '51 – 200 employees', short: '51–200' },
+  { id: '201-500', label: '201 – 500 employees', short: '201–500' },
+  { id: '501-1000', label: '501 – 1,000 employees', short: '501–1k' },
+  { id: '1001-5000', label: '1,001 – 5,000 employees', short: '1k–5k' },
+  { id: '5000+', label: '5,000+ enterprise', short: '5000+' },
+  { id: 'no_count', label: 'Unspecified / Missing', short: 'Missing' },
+];
+
+function CompanySizeMultiSelect({ value, onChange, stats }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  const selected = useMemo(() => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    return String(value).split(',').map(s => s.trim()).filter(Boolean);
+  }, [value]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const toggleBracket = (id) => {
+    const next = selected.includes(id)
+      ? selected.filter(x => x !== id)
+      : [...selected, id];
+    onChange(next.join(','));
+  };
+
+  const selectAll = () => {
+    const allIds = EMPLOYEE_BRACKETS.map(b => b.id);
+    onChange(allIds.join(','));
+  };
+
+  const clearAll = () => {
+    onChange('');
+  };
+
+  const getLabel = () => {
+    if (selected.length === 0) return 'All Company Sizes';
+    if (selected.length === 1) {
+      const found = EMPLOYEE_BRACKETS.find(b => b.id === selected[0]);
+      return found ? found.label : selected[0];
+    }
+    if (selected.length === 2) {
+      const s1 = EMPLOYEE_BRACKETS.find(b => b.id === selected[0])?.short || selected[0];
+      const s2 = EMPLOYEE_BRACKETS.find(b => b.id === selected[1])?.short || selected[1];
+      return `${s1}, ${s2}`;
+    }
+    return `${selected.length} Sizes Selected`;
+  };
+
+  return (
+    <div className={`filter-pill-item ${selected.length > 0 ? 'is-active' : ''}`} ref={containerRef} id="pillFilterEmployees">
+      <span className="pill-icon">👥</span>
+      <button
+        type="button"
+        className="filter-pill-btn"
+        onClick={() => setIsOpen(prev => !prev)}
+        title="Filter by company size (Multiple Choice Selection)"
+      >
+        <span>{getLabel()}</span>
+        {selected.length > 0 && (
+          <span className="filter-pill-badge">{selected.length}</span>
+        )}
+        <svg 
+          width="10" 
+          height="10" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2.5" 
+          style={{ 
+            opacity: 0.7, 
+            transform: isOpen ? 'rotate(180deg)' : 'none', 
+            transition: 'transform 0.15s ease' 
+          }}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className="multi-select-popover" onClick={(e) => e.stopPropagation()}>
+          <div className="multi-select-header">
+            <span className="multi-select-title">
+              Company Size ({selected.length}/{EMPLOYEE_BRACKETS.length})
+            </span>
+            {selected.length > 0 && (
+              <button
+                type="button"
+                onClick={clearAll}
+                style={{ fontSize: '0.72rem', color: '#818cf8', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <div className="multi-select-options">
+            {EMPLOYEE_BRACKETS.map(b => {
+              const isChecked = selected.includes(b.id);
+              let count = null;
+              if (b.id === 'no_count') {
+                const total = stats?.total || 0;
+                const withCount = stats?.with_employee_count || 0;
+                count = Math.max(0, total - withCount);
+              } else if (stats?.by_employee_range) {
+                count = stats.by_employee_range[b.id] ?? 0;
+              }
+
+              return (
+                <label key={b.id} className={`multi-select-row ${isChecked ? 'is-checked' : ''}`}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleBracket(b.id)}
+                      style={{ accentColor: '#6366f1', cursor: 'pointer', width: 14, height: 14 }}
+                    />
+                    <span>{b.label}</span>
+                  </div>
+                  {count != null && (
+                    <span className="multi-select-count">{count.toLocaleString()}</span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+
+          <div className="multi-select-footer">
+            <button
+              type="button"
+              onClick={selectAll}
+              style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              className="action-btn btn-primary"
+              style={{ fontSize: '0.72rem', padding: '2px 10px', height: 'auto', minHeight: 24, borderRadius: 4, cursor: 'pointer' }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function PipelineToolbar() {
   const { stats, openModal, selectedRecordIds, setSelectedRecordIds, activeSheet, showToast, reloadStats } = useApp();
@@ -311,28 +477,12 @@ export default function PipelineToolbar() {
             </select>
           </div>
 
-          {/* Company Size / Employee Count Filter Pill */}
-          <div className={`filter-pill-item ${filters.employee_count ? 'is-active' : ''}`} id="pillFilterEmployees">
-            <span className="pill-icon">👥</span>
-            <select
-              id="filterEmployees"
-              className="filter-select"
-              value={filters.employee_count || ''}
-              onChange={(e) => updateFilter('employee_count', e.target.value)}
-              title="Filter by company size / employee count"
-            >
-              <option value="">All Company Sizes</option>
-              <option value="1-10">1 – 10 employees {stats?.by_employee_range?.['1-10'] ? `(${stats.by_employee_range['1-10']})` : ''}</option>
-              <option value="11-50">11 – 50 employees {stats?.by_employee_range?.['11-50'] ? `(${stats.by_employee_range['11-50']})` : ''}</option>
-              <option value="51-200">51 – 200 employees {stats?.by_employee_range?.['51-200'] ? `(${stats.by_employee_range['51-200']})` : ''}</option>
-              <option value="201-500">201 – 500 employees {stats?.by_employee_range?.['201-500'] ? `(${stats.by_employee_range['201-500']})` : ''}</option>
-              <option value="501-1000">501 – 1,000 employees {stats?.by_employee_range?.['501-1000'] ? `(${stats.by_employee_range['501-1000']})` : ''}</option>
-              <option value="1001-5000">1,001 – 5,000 employees {stats?.by_employee_range?.['1001-5000'] ? `(${stats.by_employee_range['1001-5000']})` : ''}</option>
-              <option value="5000+">5,000+ employees {stats?.by_employee_range?.['5000+'] ? `(${stats.by_employee_range['5000+']})` : ''}</option>
-              <option value="has_count">Has Employee Count {stats?.with_employee_count ? `(${stats.with_employee_count.toLocaleString()})` : ''}</option>
-              <option value="no_count">Missing / Unspecified</option>
-            </select>
-          </div>
+          {/* Company Size / Employee Count Multiple Choice Filter Pill */}
+          <CompanySizeMultiSelect
+            value={filters.employee_count}
+            onChange={(val) => updateFilter('employee_count', val)}
+            stats={stats}
+          />
 
           {/* Status Filter Pill */}
           <div className={`filter-pill-item ${filters.status ? 'is-active' : ''}`} id="pillFilterStatus">
