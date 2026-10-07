@@ -285,7 +285,7 @@ def delete_sheet(sheet_name: str) -> dict:
                 logger.warning("Could not delete file %s: %s", f, e)
 
     # 2. Unlink any custom exports or CSVs associated with this sheet
-    for pattern in (f"{clean}_custom_*.xlsx", f"{clean}_leads_*.csv"):
+    for pattern in (f"{clean}_custom_*.xlsx", f"{clean}_filtered_*.xlsx", f"{clean}_leads_*.csv", f"{clean}_filtered_*.csv"):
         for f in DATA_DIR.glob(pattern):
             if f.is_file():
                 try:

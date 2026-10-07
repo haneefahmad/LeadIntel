@@ -556,6 +556,10 @@ class ApolloClient:
                 if org_li and not record.get("Company_LinkedIn"):
                     new_fields["Company_LinkedIn"] = org_li.strip()
 
+                org_ph = p_org.get("phone")
+                if org_ph and not record.get("Primary_Phone") and "Primary_Phone" not in new_fields:
+                    new_fields["Primary_Phone"] = clean_phone_number(org_ph)
+
         # Step 4: Standalone organization enrichment (only if explicitly enabled to prevent unwanted credit usage)
         if enrich_firmographics:
             has_emp = bool(record.get("Employee_Count") or new_fields.get("Employee_Count"))

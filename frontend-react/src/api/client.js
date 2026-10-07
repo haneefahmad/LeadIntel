@@ -122,11 +122,22 @@ export const api = {
   getLogs: () => request('/logs'),
 
   // Export URLs
-  getExportUrl: (sheet, columns) => {
-    const params = new URLSearchParams();
-    if (sheet) params.set('sheet', sheet);
-    if (columns && columns.length > 0) params.set('columns', columns.join(','));
-    return `/api/export?${params.toString()}`;
+  getExportUrl: (options = {}, legacyColumns) => {
+    const query = new URLSearchParams();
+    if (typeof options === 'string') {
+      if (options) query.set('sheet', options);
+      if (legacyColumns && legacyColumns.length > 0) {
+        query.set('columns', Array.isArray(legacyColumns) ? legacyColumns.join(',') : legacyColumns);
+      }
+    } else if (options && typeof options === 'object') {
+      Object.entries(options).forEach(([key, val]) => {
+        if (val !== undefined && val !== null && val !== '') {
+          query.set(key, val);
+        }
+      });
+    }
+    const qs = query.toString();
+    return `/api/export${qs ? `?${qs}` : ''}`;
   },
 
   getCsvExportUrl: (params = {}) => {
@@ -136,6 +147,7 @@ export const api = {
         query.set(key, val);
       }
     });
-    return `/api/export/csv?${query.toString()}`;
+    const qs = query.toString();
+    return `/api/export/csv${qs ? `?${qs}` : ''}`;
   },
 };

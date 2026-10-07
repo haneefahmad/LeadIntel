@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { usePipeline } from '../../context/PipelineContext';
 import { api } from '../../api/client';
@@ -20,22 +20,24 @@ export default function Header() {
   } = useApp();
 
   const [showStopConfirm, setShowStopConfirm] = useState(false);
-  const { search, filters, selectedColumns } = usePipeline();
+  const { search, filters, selectedColumns, totalRecords, activeFilterCount } = usePipeline();
 
-  const csvExportUrl = api.getCsvExportUrl({
+  const exportParams = useMemo(() => ({
     sheet: activeSheet,
     columns: selectedColumns?.join(','),
-    q: search,
-    city: filters.city,
-    industry: filters.industry,
-    status: filters.status,
-    has_website: filters.has_website,
-    has_email: filters.has_email,
-    has_dm: filters.has_dm,
-    has_phone: filters.has_phone,
-  });
+    q: search?.trim() || '',
+    city: filters.city || '',
+    industry: filters.industry || '',
+    status: filters.status || '',
+    employee_count: filters.employee_count || '',
+    has_website: filters.has_website || '',
+    has_email: filters.has_email || '',
+    has_dm: filters.has_dm || '',
+    has_phone: filters.has_phone || '',
+  }), [activeSheet, selectedColumns, search, filters]);
 
-  const xlsxExportUrl = api.getExportUrl(activeSheet, selectedColumns);
+  const csvExportUrl = api.getCsvExportUrl(exportParams);
+  const xlsxExportUrl = api.getExportUrl(exportParams);
 
   return (
     <header className="app-header">
@@ -153,7 +155,10 @@ export default function Header() {
         </div>
 
         {/* Export Segmented Group */}
-        <div className="export-actions-group" title="Download filtered dataset">
+        <div 
+          className="export-actions-group" 
+          title={activeFilterCount > 0 ? `Download filtered dataset (${totalRecords} leads matching filters)` : "Download complete dataset"}
+        >
           <span className="export-group-label">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -161,9 +166,45 @@ export default function Header() {
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
             <span>Export</span>
+            {activeFilterCount > 0 && (
+              <span 
+                className="export-badge"
+                title={`${totalRecords} leads match active filters`}
+                style={{
+                  fontSize: '0.62rem',
+                  lineHeight: '1',
+                  background: 'var(--primary, #3b82f6)',
+                  color: '#ffffff',
+                  borderRadius: '10px',
+                  padding: '2px 5px',
+                  marginLeft: '4px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                {totalRecords}
+              </span>
+            )}
           </span>
-          <a href={xlsxExportUrl} className="export-chip" id="btnExportExcel" download title="Download Excel (.xlsx)">XLSX</a>
-          <a href={csvExportUrl} className="export-chip" id="btnExportCSV" download title="Download CSV (.csv)">CSV</a>
+          <a 
+            href={xlsxExportUrl} 
+            className="export-chip" 
+            id="btnExportExcel" 
+            download 
+            title={activeFilterCount > 0 ? `Download filtered Excel (.xlsx) — ${totalRecords} matching leads` : "Download Excel (.xlsx)"}
+          >
+            XLSX
+          </a>
+          <a 
+            href={csvExportUrl} 
+            className="export-chip" 
+            id="btnExportCSV" 
+            download 
+            title={activeFilterCount > 0 ? `Download filtered CSV (.csv) — ${totalRecords} matching leads` : "Download CSV (.csv)"}
+          >
+            CSV
+          </a>
         </div>
 
         {/* Settings Button */}

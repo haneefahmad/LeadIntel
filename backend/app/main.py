@@ -1110,10 +1110,20 @@ def get_run_history():
 
 @app.get("/api/export")
 def download_excel_export(
+    background_tasks: BackgroundTasks,
     sheet: str = Query("", description="Optional sheet name"),
     columns: str = Query("", description="Comma-separated column IDs"),
+    q: str = Query("", description="Keyword search across name, address, email, phone"),
+    city: str = Query("", description="Filter by city"),
+    industry: str = Query("", description="Filter by industry"),
+    status: str = Query("", description="Filter by status"),
+    has_website: str = Query("", description="Yes or No"),
+    has_email: str = Query("", description="Yes or No"),
+    has_dm: str = Query("", description="Yes or No"),
+    has_phone: str = Query("", description="Yes or No"),
+    employee_count: str = Query("", description="Filter by employee count range, e.g. 1-10, 11-50, 5000+, has_count"),
 ):
-    """Generates and serves the latest MasterDB.xlsx file for the active or specified sheet, with optional column filtering."""
+    """Generates and serves a dynamically filtered MasterDB.xlsx file matching any active filters or custom columns."""
     target_sheet = config.clean_sheet_name(sheet or config.get_active_sheet())
     _, xlsx_path = config.get_sheet_paths(target_sheet)
 
@@ -1124,29 +1134,67 @@ def download_excel_export(
 
     col_list = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
 
-    if col_list:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        custom_path = config.DATA_DIR / f"{target_sheet}_custom_{timestamp}.xlsx"
+    has_filters = any([
+        bool(q and q.strip()),
+        bool(city and city.strip()),
+        bool(industry and industry.strip()),
+        bool(status and status.strip()),
+        bool(has_website and has_website.strip()),
+        bool(has_email and has_email.strip()),
+        bool(has_dm and has_dm.strip()),
+        bool(has_phone and has_phone.strip()),
+        bool(employee_count and employee_count.strip()),
+    ])
+
+    records, _ = db.query_records(
+        q=q,
+        city=city,
+        industry=industry,
+        status=status,
+        has_website=has_website,
+        has_email=has_email,
+        has_dm=has_dm,
+        has_phone=has_phone,
+        employee_count=employee_count,
+        page=1,
+        limit=None,
+        sheet_name=target_sheet,
+    )
+
+    if target_sheet != prev_sheet:
+        config.set_active_sheet(prev_sheet)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if has_filters or col_list:
+        custom_path = config.DATA_DIR / f"{target_sheet}_filtered_{timestamp}.xlsx"
         try:
-            XLSXExporter().export(str(custom_path), columns=col_list)
+            XLSXExporter().export(
+                str(custom_path),
+                columns=col_list,
+                records=records,
+                sheet_name=target_sheet,
+            )
             export_file = custom_path
-            download_name = f"{target_sheet}_custom_{timestamp}.xlsx"
+            download_name = f"{target_sheet}_filtered_{timestamp}.xlsx"
+            background_tasks.add_task(lambda p: Path(p).unlink(missing_ok=True), custom_path)
         except Exception as e:
-            logger.error("Error generating custom Excel export for %s: %s", target_sheet, e)
+            logger.error("Error generating filtered Excel export for %s: %s", target_sheet, e)
             export_file = xlsx_path
             download_name = f"{target_sheet}.xlsx"
     else:
         try:
-            XLSXExporter().export(str(xlsx_path))
+            XLSXExporter().export(
+                str(xlsx_path),
+                columns=None,
+                records=records,
+                sheet_name=target_sheet,
+            )
             export_file = xlsx_path
             download_name = f"{target_sheet}.xlsx" if target_sheet != config.DEFAULT_SHEET_NAME else "Lead_Intelligence_MasterDB.xlsx"
         except Exception as e:
             logger.error("Error generating Excel export for %s: %s", target_sheet, e)
             export_file = xlsx_path
             download_name = f"{target_sheet}.xlsx"
-
-    if target_sheet != prev_sheet:
-        config.set_active_sheet(prev_sheet)
 
     if not Path(export_file).exists():
         raise HTTPException(status_code=404, detail=f"Export file for sheet '{target_sheet}' could not be generated.")
@@ -1168,6 +1216,9 @@ def download_csv_export(
     status: str = Query("", description="Filter by status"),
     has_website: str = Query("", description="Yes or No"),
     has_email: str = Query("", description="Yes or No"),
+    has_dm: str = Query("", description="Yes or No"),
+    has_phone: str = Query("", description="Yes or No"),
+    employee_count: str = Query("", description="Filter by employee count range, e.g. 1-10, 11-50, 5000+, has_count"),
 ):
     """Generates and streams a standard CRM-compatible CSV export of lead records."""
     target_sheet = config.clean_sheet_name(sheet or config.get_active_sheet())
@@ -1176,6 +1227,18 @@ def download_csv_export(
         config.set_active_sheet(target_sheet)
         db.init_db(target_sheet)
 
+    has_filters = any([
+        bool(q and q.strip()),
+        bool(city and city.strip()),
+        bool(industry and industry.strip()),
+        bool(status and status.strip()),
+        bool(has_website and has_website.strip()),
+        bool(has_email and has_email.strip()),
+        bool(has_dm and has_dm.strip()),
+        bool(has_phone and has_phone.strip()),
+        bool(employee_count and employee_count.strip()),
+    ])
+
     records, _ = db.query_records(
         q=q,
         city=city,
@@ -1183,8 +1246,12 @@ def download_csv_export(
         status=status,
         has_website=has_website,
         has_email=has_email,
+        has_dm=has_dm,
+        has_phone=has_phone,
+        employee_count=employee_count,
         page=1,
         limit=None,
+        sheet_name=target_sheet,
     )
 
     if target_sheet != prev_sheet:
@@ -1213,7 +1280,8 @@ def download_csv_export(
             output.seek(0)
             output.truncate(0)
 
-    filename = f"{target_sheet}_leads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    prefix = f"{target_sheet}_filtered" if has_filters else f"{target_sheet}_leads"
+    filename = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         iter_csv(),
         media_type="text/csv; charset=utf-8",

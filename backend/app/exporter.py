@@ -89,12 +89,18 @@ MASTER_COLUMNS: list[tuple[str, str]] = [
 
 class XLSXExporter:
 
-    def export(self, output_path: str, columns: list[str] | None = None) -> str:
+    def export(
+        self,
+        output_path: str,
+        columns: list[str] | None = None,
+        records: list[dict] | None = None,
+        sheet_name: str | None = None,
+    ) -> str:
         wb = Workbook()
         wb.remove(wb.active)
 
         self._instructions(wb)
-        self._master_database(wb, columns=columns)
+        self._master_database(wb, columns=columns, records=records, sheet_name=sheet_name)
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         wb.save(output_path)
@@ -235,7 +241,13 @@ class XLSXExporter:
             ws.row_dimensions[idx].height = 40
 
     # ── Sheet 2: Master_Database ──────────────────────────────────────────────
-    def _master_database(self, wb: Workbook, columns: list[str] | None = None) -> None:
+    def _master_database(
+        self,
+        wb: Workbook,
+        columns: list[str] | None = None,
+        records: list[dict] | None = None,
+        sheet_name: str | None = None,
+    ) -> None:
         ws = wb.create_sheet("Master_Database")
         ws.sheet_view.showGridLines = False
 
@@ -258,7 +270,9 @@ class XLSXExporter:
             cell.border    = _border()
         ws.row_dimensions[1].height = 28
 
-        records = db.get_all_records()
+        if records is None:
+            records = db.get_all_records(sheet_name=sheet_name)
+
         for row_idx, record in enumerate(records, 2):
             for col_idx, (col_name, _) in enumerate(active_cols, 1):
                 val  = record.get(col_name, "")
@@ -270,6 +284,7 @@ class XLSXExporter:
             ws.row_dimensions[row_idx].height = 18
 
         self._autofit(ws)
+        wb.active = ws  # Default to data view when opening workbook
 
     # ── Utility ───────────────────────────────────────────────────────────────
     def _autofit(self, ws: Worksheet, min_w: int = 8, max_w: int = 40) -> None:
